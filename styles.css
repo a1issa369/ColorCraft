@@ -127,3 +127,5 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
   .top .ghost { margin-left: auto; }
   .top:has(#new-photo:not([hidden])) h1 { flex: 1; }
 }
+
+.sample { display: flex; flex-direction: column; justify-content: flex-start; }

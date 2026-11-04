@@ -1,0 +1,14 @@
+{
+  "name": "colorcraft",
+  "version": "0.1.0",
+  "description": "A color grading helper for beginner photographers: it tells you what is wrong with a photo in plain English, then shows you the fix.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\"",
+    "mutation": "python3 scripts/mutation_check.py",
+    "serve": "node scripts/serve.js 8080"
+  },
+  "engines": { "node": ">=22" },
+  "license": "MIT"
+}

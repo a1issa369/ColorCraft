@@ -9,7 +9,7 @@ Open the live demo (GitHub Pages, once enabled) or run it locally:
 
 ```
 node scripts/serve.js 8080     # then open http://localhost:8080
-npm test                       # 138 tests, Node 22+
+npm test                       # 149 tests, Node 22+
 python3 scripts/mutation_check.py
 ```
 
@@ -22,6 +22,7 @@ No photo handy? Three deliberately broken sample photos are built in (too dark a
 - **Curves**: a Lightroom-style tone curve with RGB, Red, Green and Blue lines drawn over a live histogram. Drag to bend, tap to add a point, double tap to remove one. Works with touch, mouse and keyboard.
 - **Looks**: 18 starting points in five groups (Natural, Film, Cinematic, Moody, Mono) with a strength slider. A look is just slider values, a curve and a colour mix, so nothing is hidden.
 - **Match**: pick a photo whose grade you like and ColorCraft learns its brightness and its colour toning, separately for darks, mids and lights. Separate colour and tone sliders. *Turn into editable curves* bakes the match into the Red, Green and Blue lines so you can fine tune it.
+- **Gradient masks**: limit an edit to part of the photo. A gradient is strongest at its start dot and fades to nothing at its end dot, so you can darken a sky without touching the ground. Drag the dots, flip the side, show the area as a red overlay, and give each mask its own exposure, contrast, highlights, shadows, temperature and saturation. Up to three, with one-tap starters (darken the sky, lift the ground, warm the horizon).
 - **Undo and redo**: buttons plus Ctrl or Cmd+Z, Shift+Ctrl or Cmd+Z and Ctrl+Y. A whole slider or curve drag is one step, and it covers sliders, curves, colour mix, looks, Fix everything and the reference match.
 - Before and after handle (drag or arrow keys), hold to see the original, save a full size JPEG (up to 4000 px), copy your settings as text.
 
@@ -66,6 +67,12 @@ Measured on the same machine with contrast, shadows and a reference match on, dr
 
 Stacked boosts (exposure, saturation, a look's colour push) can ask for a colour the screen cannot show, such as a blue above 100 percent. Chopping it at the limit flattens bright neon and sky into one value. The last step of the pipeline instead pulls such a pixel toward its own grey until it fits, which keeps its hue and brightness. On a vivid test ramp this keeps noticeably more distinct colours than clipping did, and the tests pin that down.
 
+## How the masks work
+
+A mask is a soft map from 0 to 1 over the photo, measured in real pixels so the angle is true on a wide photo. The photo is graded as usual, then each mask's own small edit is computed and blended in by that map: full strength where the map is 1, none where it is 0. Masks go last, on top of looks and the reference match, in the order you made them. The strength map is cached while you drag a slider and rebuilt only when a dot moves. With three masks on, a slider tick costs about 50 ms against about 33 ms with none (measured on a slow cloud machine).
+
+Gradients only for now. A paintbrush and a pick-by-brightness mask are the next steps, and there is no automatic sky or subject selection.
+
 ## Tradeoffs for the curves and matching
 
 - **Matching is not a neural network.** There is no training data and no way to ship weights while staying dependency free, and a fitted curve can be explained and edited. The cost is that it only copies a grade (tones and colour toning), never content, so a neon street reference cannot teach a sunrise to look like a neon street.
@@ -89,14 +96,14 @@ Stacked boosts (exposure, saturation, a look's colour push) can ask for a colour
 
 ## Testing
 
-138 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 37 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
+149 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 44 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
 
 The browser layer (`src/main.js`, `src/ui`) is checked by hand with Playwright screenshots at phone and desktop widths, not by automated tests.
 
 ## Layout
 
 ```
-src/core    colour maths and undo history, no DOM
+src/core    colour maths, masks and undo history, no DOM
 src/ui      histogram, scope and curve editor drawing, slider copy
 src/main.js wiring: loading, rendering, tabs
 tests       node:test suites

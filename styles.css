@@ -69,7 +69,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; letter-spac
 
 .panel-col { padding: 8px 12px 16px; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 6px 0 14px; overflow-x: auto; }
-.tabs button { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); font: inherit; padding: 12px 14px; min-height: 44px; cursor: pointer; flex: 1 0 auto; }
+.tabs button { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); font: inherit; padding: 12px 9px; min-height: 44px; cursor: pointer; flex: 1 0 auto; }
 .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 
 .scopes { display: grid; grid-template-columns: 1.6fr 1fr; gap: 10px; margin-bottom: 14px; }
@@ -175,3 +175,24 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
   .stage-actions .long { display: none; }
   .stage-actions .short { display: inline; }
 }
+
+/* ---- masks ---- */
+.mask-tint { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.mask-ui { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.mhandle { position: absolute; width: 44px; height: 44px; margin: -22px 0 0 -22px; display: grid; place-items: center; cursor: grab; touch-action: none; pointer-events: auto; border-radius: 50%; }
+.mhandle:active { cursor: grabbing; }
+.mhandle span { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--text); box-shadow: 0 0 0 1px rgba(0,0,0,.6); background: rgba(18,18,17,.35); }
+.mhandle.start span { background: var(--accent); border-color: var(--bg); box-shadow: 0 0 0 2px var(--accent-ink); }
+.starters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; }
+.starter { appearance: none; font: inherit; text-align: left; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 44px; cursor: pointer; }
+.starter b { display: block; font-weight: 600; }
+.starter small { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; line-height: 1.35; }
+.starter:hover:not(:disabled) { border-color: var(--muted); }
+.starter:disabled { opacity: .45; cursor: not-allowed; }
+.mask-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.mask-list button { appearance: none; font: inherit; font-size: 0.9rem; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 99px; min-height: 40px; padding: 6px 14px; cursor: pointer; }
+.mask-list button[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--raised); }
+.mask-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 4px; }
+.mask-actions .btn { min-height: 40px; font-size: 0.9rem; }
+@media (max-width: 420px) { .tabs button { padding: 12px 6px; font-size: 0.92rem; } }
+@media (max-width: 380px), (min-width: 900px) and (max-width: 1100px) { .tabs button { padding: 12px 4px; font-size: 0.88rem; } }

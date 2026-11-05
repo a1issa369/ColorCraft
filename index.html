@@ -34,6 +34,11 @@
     <div class="stage-col">
       <div class="stage" id="stage">
         <canvas id="view" aria-label="Photo preview. Drag the handle to compare before and after."></canvas>
+        <canvas id="mask-tint" class="mask-tint" hidden aria-hidden="true"></canvas>
+        <div class="mask-ui" id="mask-ui" hidden>
+          <div class="mhandle start" id="mh-start" role="slider" tabindex="0" aria-label="Where the mask is strongest. Drag, or use the arrow keys."><span></span></div>
+          <div class="mhandle end" id="mh-end" role="slider" tabindex="0" aria-label="Where the mask fades out completely. Drag, or use the arrow keys."><span></span></div>
+        </div>
         <div class="handle" id="handle" role="slider" tabindex="0" aria-label="Compare before and after" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span></span></div>
         <span class="chip left">Before</span><span class="chip right">After</span>
       </div>
@@ -53,6 +58,7 @@
         <button role="tab" data-tab="curves" aria-selected="false">Curves</button>
         <button role="tab" data-tab="look" aria-selected="false">Looks</button>
         <button role="tab" data-tab="match" aria-selected="false">Match</button>
+        <button role="tab" data-tab="masks" aria-selected="false">Masks</button>
       </div>
 
       <div class="pane" id="pane-read" role="tabpanel">
@@ -73,6 +79,21 @@
           <div id="mix-sliders"></div>
           <button class="btn wide" id="mix-reset" type="button">Reset colour mix</button>
         </details>
+      </div>
+
+      <div class="pane" id="pane-masks" role="tabpanel" hidden>
+        <p class="hint">A mask limits an edit to part of the photo. A gradient is strongest where it starts and fades to nothing where it ends, which is how you darken a sky without touching the ground.</p>
+        <div class="starters" id="mask-starters" role="group" aria-label="Start from"></div>
+        <div class="mask-list" id="mask-list" role="group" aria-label="Your masks"></div>
+        <div id="mask-editor" hidden>
+          <div class="mask-actions">
+            <button class="btn" id="mask-flip" type="button">Flip</button>
+            <button class="btn" id="mask-area" type="button" aria-pressed="true">Show area</button>
+            <button class="btn" id="mask-remove" type="button">Remove</button>
+          </div>
+          <p class="hint" id="mask-help"></p>
+          <div id="mask-sliders"></div>
+        </div>
       </div>
 
       <div class="pane" id="pane-curves" role="tabpanel" hidden>

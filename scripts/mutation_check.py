@@ -45,6 +45,13 @@ MUTATIONS = [
     ("history.js", "this.index--;\n    return this.stack[this.index].snap;", "this.index -= 2;\n    return this.stack[this.index].snap;", "undo skips a step"),
     ("hsl.js", "const k = Math.min(HUE_STEPS - 1, (h * (HUE_STEPS / 360)) | 0);", "const k = 0;", "colour mix ignores the pixel's hue"),
     ("transfer.js", "const idx = (L0 * (STEPS / 100) + 0.5) | 0;", "const idx = 500;", "match ignores each pixel's lightness"),
+    ("mask.js", "const a = 1 - smoothstep01(t);", "const a = smoothstep01(t);", "gradient fades the wrong way"),
+    ("mask.js", "const ry = (y + 0.5 - py) * dy;", "const ry = 0;", "gradient ignores the vertical direction"),
+    ("mask.js", "const px = m.x1 * w, py = m.y1 * h;", "const px = m.x1 * w, py = m.y1 * w;", "gradient mixes up width and height"),
+    ("mask.js", "out[y * w + x] = inv ? 1 - a : a;", "out[y * w + x] = a;", "invert does nothing"),
+    ("mask.js", "if (len2 < 1) { out.fill(inv); return out; }", "", "coinciding handles crash or give NaN"),
+    ("mask.js", "d[i] += (e[i] - d[i]) * a;", "d[i] += (e[i] - d[i]);", "mask strength ignored for red"),
+    ("mask.js", "const key = `${m.id}|${m.x1}|${m.y1}|${m.x2}|${m.y2}|${m.invert}|${w}x${h}`;", "const key = `${m.id}|${m.x1}|${m.y1}|${m.invert}|${w}x${h}`;", "alpha cache ignores the end handle"),
 ]
 
 def suite():

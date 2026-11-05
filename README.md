@@ -2,10 +2,6 @@
 
 A colour grading teacher for beginner photographers. Drop in a photo and it reads the exposure, contrast and colour, explains in plain words what it sees, and lets you fix each problem with one slider or one tap. Runs entirely in the browser: no uploads, no accounts, no dependencies, no build step.
 
-<p>
-  <img src="docs/desktop.png" alt="Desktop layout with before and after comparison" width="62%">
-  <img src="docs/mobile.png" alt="Phone layout showing looks" width="22%">
-</p>
 
 ## Try it
 

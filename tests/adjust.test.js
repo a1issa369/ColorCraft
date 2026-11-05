@@ -185,3 +185,26 @@ test('contrast curve is smooth and monotonic and keeps mid grey fixed', () => {
     assert.ok(Math.abs(out.data[128 * 4] - 128) <= 3, `contrast ${c}: mid grey moved to ${out.data[128 * 4]}`);
   }
 });
+
+test('a colour pushed past the screen gamut keeps its brightness instead of clipping flat', async () => {
+  const { makeImage } = await import('../src/core/image.js');
+  const img = makeImage(1, 1);
+  img.data.set([40, 70, 230, 255]);
+  const out = applyAdjustments(img, makeAdjustments({ exposure: 0.8, saturation: 40 }));
+  const [r, g, b] = out.data;
+  assert.ok(b <= 255 && r >= 0);
+  assert.ok(b >= g && g >= r, `channel order lost: ${r},${g},${b}`);
+  // Hard clipping chops the blue and lands near luma 91; pulling toward grey keeps it near 96.
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  assert.ok(luma >= 94, `brightness was lost to clipping: luma ${luma.toFixed(1)}`);
+});
+
+test('brightening a vivid ramp does not collapse it into a few flat values', async () => {
+  const { makeImage } = await import('../src/core/image.js');
+  const img = makeImage(1, 128);
+  for (let y = 0; y < 128; y++) img.data.set([Math.round(40 + y * 0.4), Math.round(60 + y * 0.5), Math.round(130 + y), 255], y * 4);
+  const out = applyAdjustments(img, makeAdjustments({ exposure: 0.8, saturation: 40, contrast: 20 }));
+  const seen = new Set();
+  for (let y = 0; y < 128; y++) seen.add(`${out.data[y * 4]},${out.data[y * 4 + 1]},${out.data[y * 4 + 2]}`);
+  assert.ok(seen.size >= 103, `only ${seen.size} distinct colours survived`);
+});

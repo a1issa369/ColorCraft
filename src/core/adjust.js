@@ -215,6 +215,21 @@ export function applyAdjustments(src, adj, dst = makeImage(src.width, src.height
       b = b * (1 - fadeAmt) + fadeAmt;
     }
 
+    // Gamut fit: a colour pushed past what the screen can show is pulled toward its own grey until it fits,
+    // keeping hue and brightness, instead of being chopped flat (which erases detail in bright neon and sky).
+    {
+      const l = 0.2126 * r + 0.7152 * g2 + 0.0722 * b;
+      const mx = r > g2 ? (r > b ? r : b) : (g2 > b ? g2 : b);
+      const mn = r < g2 ? (r < b ? r : b) : (g2 < b ? g2 : b);
+      if (mx > 1 && l < 1) {
+        const k = (1 - l) / (mx - l);
+        r = l + (r - l) * k; g2 = l + (g2 - l) * k; b = l + (b - l) * k;
+      } else if (mn < 0 && l > 0) {
+        const k = l / (l - mn);
+        r = l + (r - l) * k; g2 = l + (g2 - l) * k; b = l + (b - l) * k;
+      }
+    }
+
     dd[i] = r * 255;
     dd[i + 1] = g2 * 255;
     dd[i + 2] = b * 255;

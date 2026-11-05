@@ -9,7 +9,7 @@ Open the live demo (GitHub Pages, once enabled) or run it locally:
 
 ```
 node scripts/serve.js 8080     # then open http://localhost:8080
-npm test                       # 135 tests, Node 22+
+npm test                       # 138 tests, Node 22+
 python3 scripts/mutation_check.py
 ```
 
@@ -62,6 +62,10 @@ Every slider tick regrades the photo, and the cost stacks: a plain tint change i
 
 Measured on the same machine with contrast, shadows and a reference match on, dragging a slider went from 4.3 to 16.9 frames per second.
 
+## Colours that go out of range
+
+Stacked boosts (exposure, saturation, a look's colour push) can ask for a colour the screen cannot show, such as a blue above 100 percent. Chopping it at the limit flattens bright neon and sky into one value. The last step of the pipeline instead pulls such a pixel toward its own grey until it fits, which keeps its hue and brightness. On a vivid test ramp this keeps noticeably more distinct colours than clipping did, and the tests pin that down.
+
 ## Tradeoffs for the curves and matching
 
 - **Matching is not a neural network.** There is no training data and no way to ship weights while staying dependency free, and a fitted curve can be explained and edited. The cost is that it only copies a grade (tones and colour toning), never content, so a neon street reference cannot teach a sunrise to look like a neon street.
@@ -85,7 +89,7 @@ Measured on the same machine with contrast, shadows and a reference match on, dr
 
 ## Testing
 
-135 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 37 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
+138 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 37 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
 
 The browser layer (`src/main.js`, `src/ui`) is checked by hand with Playwright screenshots at phone and desktop widths, not by automated tests.
 

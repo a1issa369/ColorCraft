@@ -80,3 +80,20 @@ test('warm film is warmer and teal and orange cools the shadows', () => {
   const light = pixel(teal, 0);
   assert.ok(light[0] > light[2], `highlight ${light}`);
 });
+
+test('Neon night keeps pink pink and does not flatten a vivid scene', async () => {
+  const { makeImage } = await import('../src/core/image.js');
+  const look = lookById('neon-night');
+  const px = makeImage(1, 1); px.data.set([230, 60, 190, 255]);        // hot pink
+  const out = applyAdjustments(px, combine(makeAdjustments(), look.adj, 1));
+  const hue = (r, g, b) => { const mx = Math.max(r, g, b), d = mx - Math.min(r, g, b); const h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return h * 60; };
+  const before = hue(230, 60, 190), after = hue(out.data[0], out.data[1], out.data[2]);
+  assert.ok(Math.abs(after - before) <= 12, `pink hue moved ${before.toFixed(0)} -> ${after.toFixed(0)}`);
+  // stacked on a strong edit it must still leave most of a vivid ramp distinguishable
+  const ramp = makeImage(1, 128);
+  for (let y = 0; y < 128; y++) ramp.data.set([Math.round(30 + y * 0.3), Math.round(40 + y * 0.4), Math.round(120 + y), 255], y * 4);
+  const mine = makeAdjustments({ exposure: 0.3, contrast: 20, saturation: 25 });
+  const o2 = applyAdjustments(ramp, combine(mine, look.adj, 1));
+  const seen = new Set(); for (let y = 0; y < 128; y++) seen.add(`${o2.data[y * 4]},${o2.data[y * 4 + 1]},${o2.data[y * 4 + 2]}`);
+  assert.ok(seen.size >= 60, `only ${seen.size} distinct colours survived`);
+});

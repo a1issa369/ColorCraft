@@ -142,7 +142,7 @@ function touch() {
   dirty = true;
   lastInput = performance.now();
   clearTimeout(settleTimer);
-  if (state.workSmall !== state.work) settleTimer = setTimeout(() => { touch(); }, SETTLE_MS);
+  if (state.workSmall !== state.work) settleTimer = setTimeout(() => { dirty = true; schedule(); }, SETTLE_MS);
   schedule();
 }
 
@@ -153,7 +153,7 @@ function frame() {
   if (!state.work) return;
   if (dirty) {
     dirty = false;
-    const draft = state.workSmall !== state.work && performance.now() - lastInput < SETTLE_MS;
+    const draft = state.workSmall !== state.work && performance.now() - lastInput < SETTLE_MS - 20;
     const g = gradeImage(draft ? state.workSmall : state.work, draft ? bufDraft : bufFull);
     const canvas = draft ? gradSmall : gradCanvas;
     canvas.getContext('2d').putImageData(new ImageData(g.data, g.width, g.height), 0, 0);

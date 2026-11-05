@@ -144,36 +144,47 @@ export function matchLook(src, srcProfile, refProfile, { tone = 1, color = 1 } =
   const n = src.width * src.height;
   const nb = TONE_BANDS.length;
   // Per band: how the source's colour should be re-centred and re-scaled to look like the reference's.
-  const mapA = [], mapB = [];
+  const bandMap = [];
   for (let k = 0; k < nb; k++) {
     const s = srcProfile.bands[k], r = refProfile.bands[k];
-    const ra = clamp(r.stdA / Math.max(s.stdA, 1e-3), MIN_SPREAD, MAX_SPREAD);
-    const rb = clamp(r.stdB / Math.max(s.stdB, 1e-3), MIN_SPREAD, MAX_SPREAD);
-    mapA.push({ sm: s.meanA, rm: r.meanA, ratio: ra });
-    mapB.push({ sm: s.meanB, rm: r.meanB, ratio: rb });
+    bandMap.push({
+      sA: s.meanA, rA: r.meanA, kA: clamp(r.stdA / Math.max(s.stdA, 1e-3), MIN_SPREAD, MAX_SPREAD),
+      sB: s.meanB, rB: r.meanB, kB: clamp(r.stdB / Math.max(s.stdB, 1e-3), MIN_SPREAD, MAX_SPREAD),
+    });
+  }
+  // Everything that depends only on lightness is worked out once per lightness step (0.1 of L), not once per pixel.
+  const STEPS = 1000;
+  const toneL = new Float32Array(STEPS + 1);
+  const sA = new Float32Array(STEPS + 1), rA = new Float32Array(STEPS + 1), kA = new Float32Array(STEPS + 1);
+  const sB = new Float32Array(STEPS + 1), rB = new Float32Array(STEPS + 1), kB = new Float32Array(STEPS + 1);
+  for (let i = 0; i <= STEPS; i++) {
+    const L0 = (i / STEPS) * 100;
+    toneL[i] = quantile(refProfile.cdf, rankOf(srcProfile.cdf, L0));
+    const { i0, i1, t } = bandPos(L0);
+    const u = bandMap[i0], v = bandMap[i1], w0 = 1 - t;
+    sA[i] = u.sA * w0 + v.sA * t; rA[i] = u.rA * w0 + v.rA * t; kA[i] = u.kA * w0 + v.kA * t;
+    sB[i] = u.sB * w0 + v.sB * t; rB[i] = u.rB * w0 + v.rB * t; kB[i] = u.kB * w0 + v.kB * t;
   }
   const lab = [0, 0, 0], out = [0, 0, 0];
+  const sd = src.data, dd = dst.data;
   for (let p = 0, i = 0; p < n; p++, i += 4) {
-    linearToLab(SRGB_TO_LIN[src.data[i]], SRGB_TO_LIN[src.data[i + 1]], SRGB_TO_LIN[src.data[i + 2]], lab);
-    const L0 = clamp(lab[0], 0, 100);
+    linearToLab(SRGB_TO_LIN[sd[i]], SRGB_TO_LIN[sd[i + 1]], SRGB_TO_LIN[sd[i + 2]], lab);
+    const L0 = lab[0] < 0 ? 0 : lab[0] > 100 ? 100 : lab[0];
+    const idx = (L0 * (STEPS / 100) + 0.5) | 0;
     let L = L0;
-    if (tN > 0) L = L0 + tN * (quantile(refProfile.cdf, rankOf(srcProfile.cdf, L0)) - L0);
+    if (tN > 0) L = L0 + tN * (toneL[idx] - L0);
     let a = lab[1], b = lab[2];
     if (cN > 0) {
-      const { i0, i1, t } = bandPos(L0);
-      const ma = mapA[i0], mb2 = mapA[i1], na = mapB[i0], nb2 = mapB[i1];
-      const sA = ma.sm * (1 - t) + mb2.sm * t, rA = ma.rm * (1 - t) + mb2.rm * t, kA = ma.ratio * (1 - t) + mb2.ratio * t;
-      const sB = na.sm * (1 - t) + nb2.sm * t, rB = na.rm * (1 - t) + nb2.rm * t, kB = na.ratio * (1 - t) + nb2.ratio * t;
-      const ta = clamp((a - sA) * kA + rA - a, -MAX_SHIFT, MAX_SHIFT);
-      const tb = clamp((b - sB) * kB + rB - b, -MAX_SHIFT, MAX_SHIFT);
+      const ta = clamp((a - sA[idx]) * kA[idx] + rA[idx] - a, -MAX_SHIFT, MAX_SHIFT);
+      const tb = clamp((b - sB[idx]) * kB[idx] + rB[idx] - b, -MAX_SHIFT, MAX_SHIFT);
       a += cN * ta;
       b += cN * tb;
     }
-    labToRgb8(clamp(L, 0, 100), a, b, out);
-    dst.data[i] = out[0];
-    dst.data[i + 1] = out[1];
-    dst.data[i + 2] = out[2];
-    dst.data[i + 3] = src.data[i + 3];
+    labToRgb8(L < 0 ? 0 : L > 100 ? 100 : L, a, b, out);
+    dd[i] = out[0];
+    dd[i + 1] = out[1];
+    dd[i + 2] = out[2];
+    dd[i + 3] = sd[i + 3];
   }
   return dst;
 }

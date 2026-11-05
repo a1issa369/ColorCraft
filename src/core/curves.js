@@ -3,7 +3,7 @@
 // can never double back on itself, which would turn bright tones darker than darker ones.
 import { clamp } from './color.js';
 
-export const CURVE_STEPS = 1024;
+export const CURVE_STEPS = 4096;
 export const IDENTITY = Object.freeze([Object.freeze([0, 0]), Object.freeze([1, 1])]);
 export const CHANNELS = ['rgb', 'r', 'g', 'b'];
 
@@ -98,10 +98,8 @@ export function channelLuts(...stages) {
 }
 
 export function lutLookup(lut, v) {
-  const f = clamp(v, 0, 1) * CURVE_STEPS;
-  const k = f | 0;
-  const t = f - k;
-  return lut[k] * (1 - t) + lut[Math.min(k + 1, CURVE_STEPS)] * t;
+  // With 4096 steps the nearest entry is within a fraction of one 8-bit level, so no interpolation is needed.
+  return lut[(v <= 0 ? 0 : v >= 1 ? CURVE_STEPS : v * CURVE_STEPS + 0.5) | 0];
 }
 
 /** Blend a curve toward the straight line. strength 0 is no change, 1 is the full curve. */

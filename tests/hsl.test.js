@@ -59,3 +59,12 @@ test('the mix runs inside the pipeline, and look mixes are scaled and added', ()
   assert.equal(addHsl(null, hslBands({ red: { s: 500 } }), 1).sat[0], 100);
   assert.equal(BANDS.length, 8);
 });
+
+test('the colour mix gives the same answer for every pixel of the same hue and saturation, whatever order they come in', () => {
+  const m = makeHslMixer(hslBands({ green: { h: 60, s: 40 }, orange: { l: -50 } }));
+  const a = [0, 0, 0], b = [0, 0, 0];
+  m(0.3, 0.7, 0.2, a);
+  m(0.9, 0.5, 0.1, [0, 0, 0]);
+  m(0.3, 0.7, 0.2, b);
+  assert.deepEqual(a, b);
+});

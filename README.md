@@ -9,7 +9,7 @@ Open the live demo (GitHub Pages, once enabled) or run it locally:
 
 ```
 node scripts/serve.js 8080     # then open http://localhost:8080
-npm test                       # 128 tests, Node 22+
+npm test                       # 135 tests, Node 22+
 python3 scripts/mutation_check.py
 ```
 
@@ -22,6 +22,7 @@ No photo handy? Three deliberately broken sample photos are built in (too dark a
 - **Curves**: a Lightroom-style tone curve with RGB, Red, Green and Blue lines drawn over a live histogram. Drag to bend, tap to add a point, double tap to remove one. Works with touch, mouse and keyboard.
 - **Looks**: 18 starting points in five groups (Natural, Film, Cinematic, Moody, Mono) with a strength slider. A look is just slider values, a curve and a colour mix, so nothing is hidden.
 - **Match**: pick a photo whose grade you like and ColorCraft learns its brightness and its colour toning, separately for darks, mids and lights. Separate colour and tone sliders. *Turn into editable curves* bakes the match into the Red, Green and Blue lines so you can fine tune it.
+- **Undo and redo**: buttons plus Ctrl or Cmd+Z, Shift+Ctrl or Cmd+Z and Ctrl+Y. A whole slider or curve drag is one step, and it covers sliders, curves, colour mix, looks, Fix everything and the reference match.
 - Before and after handle (drag or arrow keys), hold to see the original, save a full size JPEG (up to 4000 px), copy your settings as text.
 
 ## How it works
@@ -51,6 +52,16 @@ All colour maths is in `src/core` with no browser dependencies, so it is testabl
 - **Colour is managed as sRGB only.** Wide gamut photos are treated as sRGB.
 - **Vanilla JavaScript, no framework.** I planned React and TypeScript, but the package registry was unreachable in my build environment, so I wrote it with zero dependencies. That turned out to suit it: the whole app is static files.
 
+## Speed
+
+Every slider tick regrades the photo, and the cost stacks: a plain tint change is about 30 ms on a 1280 px preview, a colour mix adds about 100 ms and a reference match about 140 ms (measured on a slow cloud machine). Three things keep it smooth:
+
+- **Draft preview while dragging.** Changes are drawn from a 512 px copy while a slider or curve is moving, and redrawn at full size about 180 ms after the last change. Saving always renders the full photo.
+- **Lookup tables instead of per-pixel work.** The colour mix and the reference match precompute everything that depends only on hue or lightness, once per change instead of once per pixel.
+- **Reused buffers and released photos.** Pixel buffers are allocated once per photo and reused, and the previous photo's decoded image is closed when a new one opens, so long sessions do not pile up memory.
+
+Measured on the same machine with contrast, shadows and a reference match on, dragging a slider went from 4.3 to 16.9 frames per second.
+
 ## Tradeoffs for the curves and matching
 
 - **Matching is not a neural network.** There is no training data and no way to ship weights while staying dependency free, and a fitted curve can be explained and edited. The cost is that it only copies a grade (tones and colour toning), never content, so a neon street reference cannot teach a sunrise to look like a neon street.
@@ -62,6 +73,7 @@ All colour maths is in `src/core` with no browser dependencies, so it is testabl
 - **Fitted curves drifted from straight.** My first curve fitter put each knot at the centre of its bin. When pixels bunch up on one side of a bin, the average output sits off the centre and the "unchanged" green line came out wobbly when only red and blue had been edited. Knots now sit at the average input of their bin, and a test checks the untouched channel stays straight.
 - **Baked curves were undraggable.** The first bake produced 15 points per channel. Now simplified to at most 7.
 - **The curve hid under the pinned photo on phones.** Switching to the Curves tab now scrolls the editor into the space under the photo.
+- **It got slower the more I used it.** Costs stack: each feature switched on made every slider tick slower, so a session with a few edits and a reference was about 8 times slower than a plain one. I could not reproduce memory growing from photo to photo in the page itself, so the fix targets the per-tick cost and also closes old photo bitmaps, which the browser keeps outside the page's own memory.
 - **"Shadows are crushed" on a silhouette.** It is intentional there, so the finding now says to leave it if so.
 
 - **The first cast estimator was biased.** I averaged only "nearly neutral" pixels. On scenes with little true grey it locked onto whatever was least colourful, which was often the cast itself. Switching to a soft weighting fixed it, and a test now checks that a large vivid patch cannot drag the estimate.
@@ -73,14 +85,14 @@ All colour maths is in `src/core` with no browser dependencies, so it is testabl
 
 ## Testing
 
-128 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 31 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
+135 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 37 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
 
 The browser layer (`src/main.js`, `src/ui`) is checked by hand with Playwright screenshots at phone and desktop widths, not by automated tests.
 
 ## Layout
 
 ```
-src/core    colour maths, no DOM
+src/core    colour maths and undo history, no DOM
 src/ui      histogram, scope and curve editor drawing, slider copy
 src/main.js wiring: loading, rendering, tabs
 tests       node:test suites

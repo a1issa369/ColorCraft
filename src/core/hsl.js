@@ -63,12 +63,23 @@ function bandWeights(h, out) {
   out[0] = 1;
 }
 
+const HUE_STEPS = 720; // half degree resolution is far finer than the eye can tell
+
 /** Returns fn(r, g, b, out) working on 0..1 display values, or null if the mix does nothing. */
 export function makeHslMixer(hsl) {
   if (hslIsNeutral(hsl)) return null;
+  // The shifts depend only on hue, so work them out once per hue step instead of once per pixel.
   const w = new Array(N).fill(0);
+  const dHue = new Float32Array(HUE_STEPS), dSat = new Float32Array(HUE_STEPS), dLum = new Float32Array(HUE_STEPS);
+  for (let k = 0; k < HUE_STEPS; k++) {
+    bandWeights((k + 0.5) * (360 / HUE_STEPS), w);
+    let dh = 0, ds = 0, dl = 0;
+    for (let i = 0; i < N; i++) { dh += w[i] * hsl.hue[i]; ds += w[i] * hsl.sat[i]; dl += w[i] * hsl.lum[i]; }
+    dHue[k] = (dh / 100) * HUE_RANGE_DEG; dSat[k] = 1 + ds / 100; dLum[k] = (dl / 100) * LUM_RANGE;
+  }
   return (r, g, b, out) => {
-    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    const mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
     const d = mx - mn;
     if (d < 1e-5) { out[0] = r; out[1] = g; out[2] = b; return; }
     let h;
@@ -78,12 +89,10 @@ export function makeHslMixer(hsl) {
     h = h * 60;
     if (h < 0) h += 360;
     let s = d / mx, v = mx;
-    bandWeights(h, w);
-    let dh = 0, ds = 0, dl = 0;
-    for (let i = 0; i < N; i++) { dh += w[i] * hsl.hue[i]; ds += w[i] * hsl.sat[i]; dl += w[i] * hsl.lum[i]; }
-    h = (h + (dh / 100) * HUE_RANGE_DEG + 360) % 360;
-    s = clamp(s * (1 + ds / 100), 0, 1);
-    v = clamp(v * (1 + (dl / 100) * LUM_RANGE * Math.min(1, s * 2)), 0, 1);
+    const k = Math.min(HUE_STEPS - 1, (h * (HUE_STEPS / 360)) | 0);
+    h = (h + dHue[k] + 360) % 360;
+    s = clamp(s * dSat[k], 0, 1);
+    v = clamp(v * (1 + dLum[k] * (s * 2 < 1 ? s * 2 : 1)), 0, 1);
     // HSV back to RGB
     const c = v * s, hp = h / 60, x = c * (1 - Math.abs((hp % 2) - 1)), m = v - c;
     let rr, gg, bb;

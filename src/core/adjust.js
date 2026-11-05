@@ -86,7 +86,7 @@ function hueToRgb(h) {
   return [ch(0), ch(8), ch(4)];
 }
 
-const CURVE_N = 1024;
+const CURVE_N = 4096;
 
 function contrastCurve(contrast) {
   // Pivoted power curve: mid grey stays at 0.5, contrast > 0 makes an S, contrast < 0 flattens.
@@ -167,12 +167,9 @@ export function applyAdjustments(src, adj, dst = makeImage(src.width, src.height
     let b = encode(B);
 
     if (curve) {
-      let f = r * CURVE_N, k = f | 0, t = f - k;
-      r = curve[k] * (1 - t) + curve[Math.min(k + 1, CURVE_N)] * t;
-      f = g2 * CURVE_N; k = f | 0; t = f - k;
-      g2 = curve[k] * (1 - t) + curve[Math.min(k + 1, CURVE_N)] * t;
-      f = b * CURVE_N; k = f | 0; t = f - k;
-      b = curve[k] * (1 - t) + curve[Math.min(k + 1, CURVE_N)] * t;
+      r = curve[(r * CURVE_N + 0.5) | 0];
+      g2 = curve[(g2 * CURVE_N + 0.5) | 0];
+      b = curve[(b * CURVE_N + 0.5) | 0];
     }
 
     if (luts) {

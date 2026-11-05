@@ -38,7 +38,9 @@
         <span class="chip left">Before</span><span class="chip right">After</span>
       </div>
       <div class="stage-actions">
-        <button class="btn" id="hold" type="button">Hold to see original</button>
+        <button class="btn" id="undo" type="button" aria-label="Undo (Ctrl or Cmd Z)" title="Undo (Ctrl or Cmd + Z)" disabled>Undo</button>
+        <button class="btn" id="redo" type="button" aria-label="Redo (Shift Ctrl or Cmd Z)" title="Redo (Shift + Ctrl or Cmd + Z)" disabled>Redo</button>
+        <button class="btn" id="hold" type="button" aria-label="Hold to see original"><span class="long">Hold to see original</span><span class="short">Original</span></button>
         <button class="btn" id="reset" type="button">Reset</button>
         <button class="btn primary" id="export" type="button">Save JPEG</button>
       </div>

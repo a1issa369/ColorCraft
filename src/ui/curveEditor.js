@@ -8,7 +8,7 @@ const MIN_GAP = 0.03;
 const HIT = 24;           // CSS pixels around a point that count as grabbing it
 const DOUBLE_TAP_MS = 320;
 
-export function createCurveEditor(canvas, { getCurves, onChange }) {
+export function createCurveEditor(canvas, { getCurves, onChange, onCommit = () => {} }) {
   let channel = 'rgb';
   let selected = 0;
   let drag = null;
@@ -24,7 +24,7 @@ export function createCurveEditor(canvas, { getCurves, onChange }) {
     return { x: (cx - PAD) / (W() - 2 * PAD), y: 1 - (cy - PAD) / (H() - 2 * PAD), scale: W() / r.width };
   };
   const points = () => { const c = getCurves(); return c[channel]; };
-  const emit = () => { onChange(); draw(); };
+  const emit = (commit = false) => { onChange(); draw(); if (commit) onCommit(); };
 
   function draw() {
     const w = W(), h = H();
@@ -102,7 +102,7 @@ export function createCurveEditor(canvas, { getCurves, onChange }) {
     let i = nearest(pos);
     const now = performance.now();
     if (i >= 0 && lastTap.i === i && now - lastTap.t < DOUBLE_TAP_MS) {
-      remove(i); lastTap = { t: 0, i: -1 }; e.preventDefault(); emit(); return;
+      remove(i); lastTap = { t: 0, i: -1 }; e.preventDefault(); emit(true); return;
     }
     if (i < 0) {
       const pts = points();
@@ -127,7 +127,7 @@ export function createCurveEditor(canvas, { getCurves, onChange }) {
     lastTap.t = 0; // a drag is not a tap
     emit();
   });
-  const end = (e) => { if (drag && e.pointerId === drag.id) drag = null; };
+  const end = (e) => { if (drag && e.pointerId === drag.id) { drag = null; onCommit(); } };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
 
@@ -144,7 +144,7 @@ export function createCurveEditor(canvas, { getCurves, onChange }) {
     else if (e.key === 'Delete' || e.key === 'Backspace') remove(selected);
     else return;
     e.preventDefault();
-    emit();
+    emit(true);
   });
   canvas.addEventListener('blur', draw);
   canvas.addEventListener('focus', draw);
@@ -153,7 +153,7 @@ export function createCurveEditor(canvas, { getCurves, onChange }) {
     draw,
     setChannel(c) { channel = c; selected = 0; draw(); },
     setHistogram(h) { hist = h; draw(); },
-    resetChannel() { const c = getCurves(); c[channel] = identityCurves()[channel]; selected = 0; emit(); },
-    resetAll() { const c = getCurves(); const id = identityCurves(); for (const k of CHANNELS) c[k] = id[k]; selected = 0; emit(); },
+    resetChannel() { const c = getCurves(); c[channel] = identityCurves()[channel]; selected = 0; emit(true); },
+    resetAll() { const c = getCurves(); const id = identityCurves(); for (const k of CHANNELS) c[k] = id[k]; selected = 0; emit(true); },
   };
 }

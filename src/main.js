@@ -3,9 +3,10 @@ import { identityCurves, cloneCurves, composePoints, curvesAreIdentity } from '.
 import { BANDS, makeHsl, cloneHsl, hslIsNeutral } from './core/hsl.js';
 import { analyze } from './core/analyze.js';
 import { diagnose, autoGrade } from './core/suggest.js';
-import { downscale } from './core/image.js';
+import { downscale, makeImage } from './core/image.js';
 import { LOOKS, LOOK_GROUPS, lookById } from './core/looks.js';
 import { lookProfile, matchLook, fitCurves } from './core/transfer.js';
+import { History } from './core/history.js';
 import { dominantColors } from './core/palette.js';
 import { SAMPLES, renderSample } from './core/samples.js';
 import { drawHistogram, drawScope } from './ui/draw.js';
@@ -13,16 +14,20 @@ import { createCurveEditor } from './ui/curveEditor.js';
 import { CONTROLS } from './ui/teach.js';
 
 const WORK_EDGE = 1280;
+const DRAFT_EDGE = 512;     // size used while a slider or curve is moving
+const SETTLE_MS = 180;      // quiet time before the full size render
 const EXPORT_EDGE = 4000;
+const HISTORY_LIMIT = 100;
 const $ = (id) => document.getElementById(id);
 
 const state = {
   source: null,        // drawable (ImageBitmap or canvas) at full size
   work: null,          // downscaled image used for the live preview
+  workSmall: null,     // smaller copy used while dragging, so sliders stay smooth
   adj: makeAdjustments(),
   look: null,
   lookStrength: 1,
-  ref: null,           // { profile, tone, color }
+  ref: null,           // { profile, tone, color, thumb, swatches }
   findings: [],
   split: 0.5,
   hold: false,
@@ -83,8 +88,14 @@ function imageToCanvas(img) {
 }
 
 function start(drawable) {
+  // Release the previous photo's decoded pixels now instead of waiting for the browser to get around to it.
+  if (state.source && state.source !== drawable && typeof state.source.close === 'function') state.source.close();
   state.source = drawable;
   state.work = toImage(drawable, WORK_EDGE);
+  state.workSmall = downscale(state.work, DRAFT_EDGE);
+  bufFull = makeBuffers(state.work);
+  bufDraft = state.workSmall === state.work ? bufFull : makeBuffers(state.workSmall);
+  gradSmall.width = state.workSmall.width; gradSmall.height = state.workSmall.height;
   state.adj = makeAdjustments();
   state.look = null; state.lookStrength = 1; state.ref = null;
   state.split = 0.5;
@@ -97,8 +108,9 @@ function start(drawable) {
   const ratio = state.work.width / state.work.height;
   $('stage').style.width = `min(100%, calc(var(--maxh) * ${ratio.toFixed(4)}))`;
   buildLooks(); buildOwnSwatches(); syncSliders(); syncMix(); renderFindings(); syncLookUi(); syncRefUi(); curveEditor.draw();
+  resetHistory();
   setTab('read');
-  dirty = true; schedule();
+  touch();
   window.scrollTo({ top: 0 });
 }
 
@@ -106,19 +118,32 @@ function start(drawable) {
 const view = $('view');
 const origCanvas = document.createElement('canvas');
 const gradCanvas = document.createElement('canvas');
-let dirty = false, raf = 0;
+const gradSmall = document.createElement('canvas');
+let bufFull = null, bufDraft = null;     // reused pixel buffers, so a drag does not allocate megabytes per frame
+let dirty = false, raf = 0, lastInput = -1e9, settleTimer = 0, shownDraft = false;
+
+const makeBuffers = (img) => ({ a: makeImage(img.width, img.height), b: makeImage(img.width, img.height) });
 
 function effectiveAdj() {
   const look = lookById(state.look);
   return look ? combine(state.adj, look.adj, state.lookStrength) : state.adj;
 }
 
-function gradeImage(img) {
-  let out = applyAdjustments(img, effectiveAdj());
+function gradeImage(img, bufs) {
+  let out = applyAdjustments(img, effectiveAdj(), bufs ? bufs.a : undefined);
   if (state.ref && (state.ref.tone > 0 || state.ref.color > 0)) {
-    out = matchLook(out, lookProfile(out), state.ref.profile, { tone: state.ref.tone, color: state.ref.color });
+    out = matchLook(out, lookProfile(out), state.ref.profile, { tone: state.ref.tone, color: state.ref.color }, bufs ? bufs.b : undefined);
   }
   return out;
+}
+
+/** Ask for a redraw. While things are still changing the preview is drawn smaller; a moment after the last change it is redrawn in full. */
+function touch() {
+  dirty = true;
+  lastInput = performance.now();
+  clearTimeout(settleTimer);
+  if (state.workSmall !== state.work) settleTimer = setTimeout(() => { touch(); }, SETTLE_MS);
+  schedule();
 }
 
 function schedule() { if (!raf) raf = requestAnimationFrame(frame); }
@@ -128,9 +153,12 @@ function frame() {
   if (!state.work) return;
   if (dirty) {
     dirty = false;
-    const g = gradeImage(state.work);
-    gradCanvas.getContext('2d').putImageData(new ImageData(g.data, g.width, g.height), 0, 0);
-    const stats = analyze(downscale(g, 256));
+    const draft = state.workSmall !== state.work && performance.now() - lastInput < SETTLE_MS;
+    const g = gradeImage(draft ? state.workSmall : state.work, draft ? bufDraft : bufFull);
+    const canvas = draft ? gradSmall : gradCanvas;
+    canvas.getContext('2d').putImageData(new ImageData(g.data, g.width, g.height), 0, 0);
+    shownDraft = draft;
+    const stats = analyze(downscale(g, draft ? 160 : 256));
     drawHistogram($('hist'), stats);
     drawScope($('scope'), stats);
     curveEditor.setHistogram(stats.hist);
@@ -141,7 +169,7 @@ function frame() {
 function compose() {
   const ctx = view.getContext('2d');
   const w = view.width, h = view.height;
-  ctx.drawImage(gradCanvas, 0, 0);
+  ctx.drawImage(shownDraft ? gradSmall : gradCanvas, 0, 0, w, h);
   const s = state.hold ? 1 : state.split;
   if (s > 0) {
     ctx.save();
@@ -214,8 +242,9 @@ const sliderEls = {};
     const fmt = c.fmt || ((v) => (v > 0 ? '+' : '') + Math.round(v));
     label.innerHTML = `<span class="row"><b>${c.name}</b><output></output></span><input type="range" min="${c.min}" max="${c.max}" step="${c.step}"><small>${c.tip}</small>`;
     const input = label.querySelector('input'), out = label.querySelector('output');
-    input.addEventListener('input', () => { state.adj[c.key] = Number(input.value); out.textContent = fmt(state.adj[c.key]); dirty = true; schedule(); });
-    input.addEventListener('dblclick', () => { state.adj[c.key] = DEFAULTS[c.key]; syncSliders(); dirty = true; schedule(); });
+    input.addEventListener('input', () => { state.adj[c.key] = Number(input.value); out.textContent = fmt(state.adj[c.key]); touch(); });
+    input.addEventListener('dblclick', () => { state.adj[c.key] = DEFAULTS[c.key]; syncSliders(); touch(); commit(); });
+    input.addEventListener('change', commit);
     sliderEls[c.key] = { input, out, fmt };
     host.appendChild(label);
   }
@@ -245,7 +274,7 @@ function renderFindings() {
       const done = fixApplied(f);
       b.textContent = done ? 'Applied' : 'Apply this fix';
       b.disabled = done;
-      b.addEventListener('click', () => { Object.assign(state.adj, f.fix); syncSliders(); renderFindings(); dirty = true; schedule(); });
+      b.addEventListener('click', () => { Object.assign(state.adj, f.fix); syncSliders(); renderFindings(); touch(); commit(); });
       li.appendChild(b);
     }
     ul.appendChild(li);
@@ -253,7 +282,7 @@ function renderFindings() {
 }
 $('fix-all').addEventListener('click', () => {
   state.adj = autoGrade(state.work, makeAdjustments({ curves: state.adj.curves, hsl: state.adj.hsl }));
-  syncSliders(); renderFindings(); dirty = true; schedule();
+  syncSliders(); renderFindings(); touch(); commit();
 });
 
 // ---------- looks ----------
@@ -270,7 +299,7 @@ function buildLooks() {
     c.getContext('2d').putImageData(new ImageData(g.data, g.width, g.height), 0, 0);
     const s = document.createElement('span'); s.textContent = l.name;
     b.append(c, s);
-    b.addEventListener('click', () => { state.look = l.id; syncLookUi(); dirty = true; schedule(); });
+    b.addEventListener('click', () => { state.look = l.id; syncLookUi(); touch(); commit(); });
     return b;
   };
   const first = document.createElement('div'); first.className = 'looks';
@@ -290,9 +319,10 @@ function syncLookUi() {
   $('look-strength').value = Math.round(state.lookStrength * 100);
   $('look-out').textContent = `${Math.round(state.lookStrength * 100)}%`;
 }
+$('look-strength').addEventListener('change', commit);
 $('look-strength').addEventListener('input', (e) => {
   state.lookStrength = Number(e.target.value) / 100;
-  $('look-out').textContent = `${e.target.value}%`; dirty = true; schedule();
+  $('look-out').textContent = `${e.target.value}%`; touch();
 });
 
 // ---------- match ----------
@@ -308,6 +338,10 @@ function buildOwnSwatches() { swatches($('own-swatches'), dominantColors(downsca
 function syncRefUi() {
   $('ref-info').hidden = !state.ref;
   if (state.ref) {
+    const t = $('ref-thumb'), th = state.ref.thumb;
+    t.width = th.width; t.height = th.height;
+    t.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(th.data), th.width, th.height), 0, 0);
+    swatches($('ref-swatches'), state.ref.swatches);
     $('ref-color').value = Math.round(state.ref.color * 100); $('ref-color-out').textContent = `${Math.round(state.ref.color * 100)}%`;
     $('ref-tone').value = Math.round(state.ref.tone * 100); $('ref-tone-out').textContent = `${Math.round(state.ref.tone * 100)}%`;
   }
@@ -318,23 +352,27 @@ $('ref-file').addEventListener('change', async (e) => {
   try {
     const bmp = await decodeFile(f);
     const img = toImage(bmp, 320);
-    state.ref = { profile: lookProfile(img), color: 0.8, tone: 0.5 };
-    const t = $('ref-thumb'); const th = downscale(img, 120);
-    t.width = th.width; t.height = th.height;
-    t.getContext('2d').putImageData(new ImageData(th.data, th.width, th.height), 0, 0);
-    swatches($('ref-swatches'), dominantColors(img, 5));
-    syncRefUi(); dirty = true; schedule();
+    if (typeof bmp.close === 'function') bmp.close();
+    const th = downscale(img, 120);
+    state.ref = {
+      id: ++refCounter, profile: lookProfile(img), color: 0.8, tone: 0.5,
+      thumb: { width: th.width, height: th.height, data: new Uint8ClampedArray(th.data) },
+      swatches: dominantColors(img, 5),
+    };
+    syncRefUi(); touch(); commit();
   } catch (err) { $('copy-msg').textContent = err.message; }
 });
+$('ref-color').addEventListener('change', commit);
+$('ref-tone').addEventListener('change', commit);
 $('ref-color').addEventListener('input', (e) => {
   if (!state.ref) return;
-  state.ref.color = Number(e.target.value) / 100; $('ref-color-out').textContent = `${e.target.value}%`; dirty = true; schedule();
+  state.ref.color = Number(e.target.value) / 100; $('ref-color-out').textContent = `${e.target.value}%`; touch();
 });
 $('ref-tone').addEventListener('input', (e) => {
   if (!state.ref) return;
-  state.ref.tone = Number(e.target.value) / 100; $('ref-tone-out').textContent = `${e.target.value}%`; dirty = true; schedule();
+  state.ref.tone = Number(e.target.value) / 100; $('ref-tone-out').textContent = `${e.target.value}%`; touch();
 });
-$('ref-clear').addEventListener('click', () => { state.ref = null; syncRefUi(); dirty = true; schedule(); });
+$('ref-clear').addEventListener('click', () => { state.ref = null; syncRefUi(); touch(); commit(); });
 $('ref-bake').addEventListener('click', () => {
   if (!state.ref) return;
   const before = applyAdjustments(state.work, effectiveAdj());
@@ -344,7 +382,8 @@ $('ref-bake').addEventListener('click', () => {
   for (const k of ['r', 'g', 'b']) cur[k] = composePoints(cur[k], fitted[k]);
   state.adj.curves = cur;
   state.ref = null;
-  syncRefUi(); curveEditor.draw(); dirty = true; schedule();
+  syncRefUi(); curveEditor.draw(); touch();
+  commit();
   setTab('curves');
   $('copy-msg').textContent = 'The match is now in your Red, Green and Blue curves. Drag them to fine tune.';
 });
@@ -352,7 +391,7 @@ $('ref-bake').addEventListener('click', () => {
 // ---------- reset, export, copy ----------
 $('reset').addEventListener('click', () => {
   state.adj = makeAdjustments(); state.look = null; state.lookStrength = 1; state.ref = null;
-  syncSliders(); syncMix(); syncLookUi(); syncRefUi(); renderFindings(); curveEditor.draw(); dirty = true; schedule();
+  syncSliders(); syncMix(); syncLookUi(); syncRefUi(); renderFindings(); curveEditor.draw(); touch(); commit();
 });
 
 $('export').addEventListener('click', async () => {
@@ -361,7 +400,7 @@ $('export').addEventListener('click', async () => {
   await new Promise((r) => setTimeout(r, 30));
   try {
     const full = toImage(state.source, EXPORT_EDGE);
-    const g = gradeImage(full);
+    const g = gradeImage(full, makeBuffers(full));
     const c = document.createElement('canvas');
     c.width = g.width; c.height = g.height;
     c.getContext('2d').putImageData(new ImageData(g.data, g.width, g.height), 0, 0);
@@ -392,10 +431,49 @@ $('copy').addEventListener('click', async () => {
   $('copy-msg').textContent = ok ? 'Copied. Paste these into Lightroom or Snapseed to repeat the grade.' : text;
 });
 
+// ---------- undo and redo ----------
+// Each finished gesture (releasing a slider, dropping a curve point, clicking a look) becomes one step.
+let refCounter = 0;
+const history = new History(HISTORY_LIMIT);
+const snapshot = () => ({
+  adj: makeAdjustments(state.adj), look: state.look, lookStrength: state.lookStrength,
+  ref: state.ref ? { ...state.ref } : null,
+});
+const signature = (s) => JSON.stringify([s.adj, s.look, s.lookStrength, s.ref && [s.ref.id, s.ref.tone, s.ref.color]]);
+function commit() {
+  if (!state.work) return;
+  const snap = snapshot();
+  if (history.commit(snap, signature(snap))) syncHistoryUi();
+}
+function resetHistory() { history.reset(); commit(); }
+function restore(snap) {
+  if (!snap) return;
+  state.adj = makeAdjustments(snap.adj);
+  state.look = snap.look; state.lookStrength = snap.lookStrength;
+  state.ref = snap.ref ? { ...snap.ref } : null;
+  syncSliders(); syncMix(); syncLookUi(); syncRefUi(); renderFindings(); curveEditor.draw();
+  touch(); syncHistoryUi();
+}
+const undo = () => restore(history.undo());
+const redo = () => restore(history.redo());
+function syncHistoryUi() {
+  $('undo').disabled = !history.canUndo;
+  $('redo').disabled = !history.canRedo;
+}
+$('undo').addEventListener('click', undo);
+$('redo').addEventListener('click', redo);
+document.addEventListener('keydown', (e) => {
+  if ($('editor').hidden || !(e.ctrlKey || e.metaKey)) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo(); }
+});
+
 // ---------- curves ----------
 const curveEditor = createCurveEditor($('curve'), {
   getCurves: () => (state.adj.curves || (state.adj.curves = identityCurves())),
-  onChange: () => { dirty = true; schedule(); },
+  onChange: () => { touch(); },
+  onCommit: () => commit(),
 });
 for (const b of document.querySelectorAll('#curve-channels button')) {
   b.addEventListener('click', () => {
@@ -428,9 +506,10 @@ const BAND_DOT = ['#d9453d', '#e08a3a', '#d9c53d', '#58b45f', '#3fb5b0', '#4a7fd
       if (!state.adj.hsl) state.adj.hsl = makeHsl();
       state.adj.hsl[key][band] = Number(input.value);
       label.querySelector('output').textContent = (input.value > 0 ? '+' : '') + input.value;
-      dirty = true; schedule();
+      touch();
     });
-    input.addEventListener('dblclick', () => { if (state.adj.hsl) state.adj.hsl[key][band] = 0; syncMix(); dirty = true; schedule(); });
+    input.addEventListener('dblclick', () => { if (state.adj.hsl) state.adj.hsl[key][band] = 0; syncMix(); touch(); commit(); });
+    input.addEventListener('change', commit);
     sl.appendChild(label);
   }
 })();
@@ -442,7 +521,7 @@ function syncMix() {
     input.closest('label').querySelector('output').textContent = (v > 0 ? '+' : '') + v;
   }
 }
-$('mix-reset').addEventListener('click', () => { state.adj.hsl = null; syncMix(); dirty = true; schedule(); });
+$('mix-reset').addEventListener('click', () => { state.adj.hsl = null; syncMix(); touch(); commit(); });
 
 // ---------- entry points ----------
 $('file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openFile(f); });

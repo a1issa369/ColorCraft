@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderCoast, renderSample, SAMPLES } from '../src/core/samples.js';
-import { LOOKS, lookById } from '../src/core/looks.js';
+import { LOOKS, LOOK_GROUPS, lookById } from '../src/core/looks.js';
 import { applyAdjustments, makeAdjustments, combine, RANGES } from '../src/core/adjust.js';
 import { analyze } from '../src/core/analyze.js';
 import { maxDiff, pixel } from './helpers.js';
@@ -37,11 +37,17 @@ test('every look has a name, a one-line description and values inside the slider
     for (const [k, v] of Object.entries(l.adj)) {
       if (k === 'splitShadow' || k === 'splitHighlight') {
         assert.ok(v.amount >= 0 && v.amount <= 1 && v.hue >= 0 && v.hue <= 360, `${l.id}.${k}`);
+      } else if (k === 'curves') {
+        for (const pts of Object.values(v)) for (const [x, y] of pts) assert.ok(x >= 0 && x <= 1 && y >= 0 && y <= 1, `${l.id}.curves`);
+      } else if (k === 'hsl') {
+        for (const arr of Object.values(v)) for (const n of arr) assert.ok(n >= -100 && n <= 100, `${l.id}.hsl`);
       } else {
         assert.ok(v >= RANGES[k][0] && v <= RANGES[k][1], `${l.id}.${k}=${v}`);
       }
     }
   }
+  assert.ok(LOOKS.length >= 15);
+  for (const l of LOOKS) assert.ok(LOOK_GROUPS.includes(l.group), `${l.id} has no group`);
   assert.equal(lookById('film').id, 'film');
   assert.equal(lookById('missing'), null);
 });

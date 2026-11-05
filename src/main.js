@@ -1,12 +1,15 @@
-import { makeAdjustments, combine, applyAdjustments, isNeutral, DEFAULTS } from './core/adjust.js';
+import { makeAdjustments, combine, applyAdjustments, DEFAULTS } from './core/adjust.js';
+import { identityCurves, cloneCurves, composePoints, curvesAreIdentity } from './core/curves.js';
+import { BANDS, makeHsl, cloneHsl, hslIsNeutral } from './core/hsl.js';
 import { analyze } from './core/analyze.js';
 import { diagnose, autoGrade } from './core/suggest.js';
 import { downscale } from './core/image.js';
-import { LOOKS, lookById } from './core/looks.js';
-import { labStats, transferColor } from './core/transfer.js';
+import { LOOKS, LOOK_GROUPS, lookById } from './core/looks.js';
+import { lookProfile, matchLook, fitCurves } from './core/transfer.js';
 import { dominantColors } from './core/palette.js';
 import { SAMPLES, renderSample } from './core/samples.js';
 import { drawHistogram, drawScope } from './ui/draw.js';
+import { createCurveEditor } from './ui/curveEditor.js';
 import { CONTROLS } from './ui/teach.js';
 
 const WORK_EDGE = 1280;
@@ -19,7 +22,7 @@ const state = {
   adj: makeAdjustments(),
   look: null,
   lookStrength: 1,
-  ref: null,           // { stats, strength }
+  ref: null,           // { profile, tone, color }
   findings: [],
   split: 0.5,
   hold: false,
@@ -93,7 +96,7 @@ function start(drawable) {
   origCanvas.getContext('2d').putImageData(new ImageData(state.work.data, state.work.width, state.work.height), 0, 0);
   const ratio = state.work.width / state.work.height;
   $('stage').style.width = `min(100%, calc(var(--maxh) * ${ratio.toFixed(4)}))`;
-  buildLooks(); buildOwnSwatches(); syncSliders(); renderFindings(); syncLookUi(); syncRefUi();
+  buildLooks(); buildOwnSwatches(); syncSliders(); syncMix(); renderFindings(); syncLookUi(); syncRefUi(); curveEditor.draw();
   setTab('read');
   dirty = true; schedule();
   window.scrollTo({ top: 0 });
@@ -112,7 +115,9 @@ function effectiveAdj() {
 
 function gradeImage(img) {
   let out = applyAdjustments(img, effectiveAdj());
-  if (state.ref && state.ref.strength > 0) out = transferColor(out, labStats(out), state.ref.stats, state.ref.strength);
+  if (state.ref && (state.ref.tone > 0 || state.ref.color > 0)) {
+    out = matchLook(out, lookProfile(out), state.ref.profile, { tone: state.ref.tone, color: state.ref.color });
+  }
   return out;
 }
 
@@ -128,6 +133,7 @@ function frame() {
     const stats = analyze(downscale(g, 256));
     drawHistogram($('hist'), stats);
     drawScope($('scope'), stats);
+    curveEditor.setHistogram(stats.hist);
   }
   compose();
 }
@@ -184,6 +190,11 @@ function setTab(name) {
   state.tab = name;
   for (const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const p of document.querySelectorAll('.pane')) p.hidden = p.id !== `pane-${name}`;
+  if (name === 'curves' && window.matchMedia('(max-width: 899px)').matches) {
+    // On phones the photo is pinned to the top; bring the curve into the space under it.
+    document.documentElement.style.setProperty('--sticky-h', `${document.querySelector('.stage-col').offsetHeight}px`);
+    $('curve-channels').scrollIntoView({ block: 'start' });
+  }
 }
 $('tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
 $('tabs').addEventListener('keydown', (e) => {
@@ -241,7 +252,7 @@ function renderFindings() {
   }
 }
 $('fix-all').addEventListener('click', () => {
-  state.adj = autoGrade(state.work, makeAdjustments());
+  state.adj = autoGrade(state.work, makeAdjustments({ curves: state.adj.curves, hsl: state.adj.hsl }));
   syncSliders(); renderFindings(); dirty = true; schedule();
 });
 
@@ -250,8 +261,7 @@ function buildLooks() {
   const host = $('looks');
   host.textContent = '';
   const thumb = downscale(state.work, 120);
-  const entries = [{ id: null, name: 'None' }, ...LOOKS];
-  for (const l of entries) {
+  const mkTile = (l) => {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'btn look'; b.dataset.look = l.id || '';
     const c = document.createElement('canvas');
@@ -261,13 +271,22 @@ function buildLooks() {
     const s = document.createElement('span'); s.textContent = l.name;
     b.append(c, s);
     b.addEventListener('click', () => { state.look = l.id; syncLookUi(); dirty = true; schedule(); });
-    host.appendChild(b);
+    return b;
+  };
+  const first = document.createElement('div'); first.className = 'looks';
+  first.appendChild(mkTile({ id: null, name: 'None' }));
+  host.appendChild(first);
+  for (const group of LOOK_GROUPS) {
+    const h = document.createElement('h3'); h.className = 'look-group'; h.textContent = group;
+    const grid = document.createElement('div'); grid.className = 'looks';
+    for (const l of LOOKS.filter((x) => x.group === group)) grid.appendChild(mkTile(l));
+    host.append(h, grid);
   }
 }
 function syncLookUi() {
   for (const b of document.querySelectorAll('.look')) b.setAttribute('aria-pressed', String((b.dataset.look || null) === state.look));
   const l = lookById(state.look);
-  $('look-blurb').textContent = l ? l.blurb : 'Pick a look to start from. It stacks on top of your sliders.';
+  $('look-blurb').textContent = l ? l.blurb : 'Pick a look to start from. It stacks on top of your sliders and curves.';
   $('look-strength').value = Math.round(state.lookStrength * 100);
   $('look-out').textContent = `${Math.round(state.lookStrength * 100)}%`;
 }
@@ -288,7 +307,10 @@ function swatches(host, list) {
 function buildOwnSwatches() { swatches($('own-swatches'), dominantColors(downscale(state.work, 160), 5)); }
 function syncRefUi() {
   $('ref-info').hidden = !state.ref;
-  if (state.ref) { $('ref-strength').value = Math.round(state.ref.strength * 100); $('ref-out').textContent = `${Math.round(state.ref.strength * 100)}%`; }
+  if (state.ref) {
+    $('ref-color').value = Math.round(state.ref.color * 100); $('ref-color-out').textContent = `${Math.round(state.ref.color * 100)}%`;
+    $('ref-tone').value = Math.round(state.ref.tone * 100); $('ref-tone-out').textContent = `${Math.round(state.ref.tone * 100)}%`;
+  }
 }
 $('ref-file').addEventListener('change', async (e) => {
   const f = e.target.files[0]; e.target.value = '';
@@ -296,21 +318,41 @@ $('ref-file').addEventListener('change', async (e) => {
   try {
     const bmp = await decodeFile(f);
     const img = toImage(bmp, 320);
-    state.ref = { stats: labStats(img), strength: 0.6 };
+    state.ref = { profile: lookProfile(img), color: 0.8, tone: 0.5 };
+    const t = $('ref-thumb'); const th = downscale(img, 120);
+    t.width = th.width; t.height = th.height;
+    t.getContext('2d').putImageData(new ImageData(th.data, th.width, th.height), 0, 0);
     swatches($('ref-swatches'), dominantColors(img, 5));
     syncRefUi(); dirty = true; schedule();
-  } catch (err) { alert(err.message); }
+  } catch (err) { $('copy-msg').textContent = err.message; }
 });
-$('ref-strength').addEventListener('input', (e) => {
+$('ref-color').addEventListener('input', (e) => {
   if (!state.ref) return;
-  state.ref.strength = Number(e.target.value) / 100; $('ref-out').textContent = `${e.target.value}%`; dirty = true; schedule();
+  state.ref.color = Number(e.target.value) / 100; $('ref-color-out').textContent = `${e.target.value}%`; dirty = true; schedule();
+});
+$('ref-tone').addEventListener('input', (e) => {
+  if (!state.ref) return;
+  state.ref.tone = Number(e.target.value) / 100; $('ref-tone-out').textContent = `${e.target.value}%`; dirty = true; schedule();
 });
 $('ref-clear').addEventListener('click', () => { state.ref = null; syncRefUi(); dirty = true; schedule(); });
+$('ref-bake').addEventListener('click', () => {
+  if (!state.ref) return;
+  const before = applyAdjustments(state.work, effectiveAdj());
+  const after = matchLook(before, lookProfile(before), state.ref.profile, { tone: state.ref.tone, color: state.ref.color });
+  const fitted = fitCurves(before, after);
+  const cur = cloneCurves(state.adj.curves);
+  for (const k of ['r', 'g', 'b']) cur[k] = composePoints(cur[k], fitted[k]);
+  state.adj.curves = cur;
+  state.ref = null;
+  syncRefUi(); curveEditor.draw(); dirty = true; schedule();
+  setTab('curves');
+  $('copy-msg').textContent = 'The match is now in your Red, Green and Blue curves. Drag them to fine tune.';
+});
 
 // ---------- reset, export, copy ----------
 $('reset').addEventListener('click', () => {
   state.adj = makeAdjustments(); state.look = null; state.lookStrength = 1; state.ref = null;
-  syncSliders(); syncLookUi(); syncRefUi(); renderFindings(); dirty = true; schedule();
+  syncSliders(); syncMix(); syncLookUi(); syncRefUi(); renderFindings(); curveEditor.draw(); dirty = true; schedule();
 });
 
 $('export').addEventListener('click', async () => {
@@ -336,12 +378,71 @@ $('copy').addEventListener('click', async () => {
   const lines = CONTROLS.filter((c) => Math.abs(a[c.key]) > 1e-9).map((c) => `${c.name}: ${c.fmt ? c.fmt(a[c.key]) : (a[c.key] > 0 ? '+' : '') + Math.round(a[c.key])}`);
   if (a.splitShadow.amount) lines.push(`Shadow tint: hue ${a.splitShadow.hue}, ${Math.round(a.splitShadow.amount * 100)}%`);
   if (a.splitHighlight.amount) lines.push(`Highlight tint: hue ${a.splitHighlight.hue}, ${Math.round(a.splitHighlight.amount * 100)}%`);
-  if (state.ref) lines.push(`Matched to a reference at ${Math.round(state.ref.strength * 100)}%`);
+  if (!curvesAreIdentity(a.curves) || !curvesAreIdentity(a.lookCurves)) lines.push('Tone curve: custom (see the Curves tab)');
+  if (!hslIsNeutral(a.hsl)) {
+    BANDS.forEach((b, i) => {
+      const parts = [['hue', 'hue'], ['sat', 'saturation'], ['lum', 'brightness']].filter(([k]) => a.hsl[k][i]).map(([k, n]) => `${n} ${a.hsl[k][i] > 0 ? '+' : ''}${Math.round(a.hsl[k][i])}`);
+      if (parts.length) lines.push(`${b.name}: ${parts.join(', ')}`);
+    });
+  }
+  if (state.ref) lines.push(`Matched to a reference: colour ${Math.round(state.ref.color * 100)}%, tone ${Math.round(state.ref.tone * 100)}%`);
   const text = lines.length ? lines.join('\n') : 'No changes yet.';
   let ok = false;
   try { await navigator.clipboard.writeText(text); ok = true; } catch { /* fall through */ }
   $('copy-msg').textContent = ok ? 'Copied. Paste these into Lightroom or Snapseed to repeat the grade.' : text;
 });
+
+// ---------- curves ----------
+const curveEditor = createCurveEditor($('curve'), {
+  getCurves: () => (state.adj.curves || (state.adj.curves = identityCurves())),
+  onChange: () => { dirty = true; schedule(); },
+});
+for (const b of document.querySelectorAll('#curve-channels button')) {
+  b.addEventListener('click', () => {
+    for (const o of document.querySelectorAll('#curve-channels button')) o.setAttribute('aria-pressed', String(o === b));
+    curveEditor.setChannel(b.dataset.ch);
+  });
+}
+$('curve-reset-ch').addEventListener('click', () => curveEditor.resetChannel());
+$('curve-reset-all').addEventListener('click', () => curveEditor.resetAll());
+
+// ---------- colour mix ----------
+let band = 0;
+const BAND_DOT = ['#d9453d', '#e08a3a', '#d9c53d', '#58b45f', '#3fb5b0', '#4a7fd6', '#9a6fc4', '#cf5fa0'];
+(function buildMix() {
+  const host = $('bands');
+  BANDS.forEach((b, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'band'; btn.setAttribute('aria-pressed', String(i === 0));
+    btn.innerHTML = `<i style="background:${BAND_DOT[i]}"></i>${b.name}`;
+    btn.addEventListener('click', () => { band = i; syncMix(); });
+    host.appendChild(btn);
+  });
+  const sl = $('mix-sliders');
+  for (const [key, name, tip] of [['hue', 'Hue', 'Slides this colour toward its neighbours.'], ['sat', 'Saturation', 'How strong this colour is.'], ['lum', 'Brightness', 'How light or dark this colour is.']]) {
+    const label = document.createElement('label');
+    label.className = 'slider';
+    label.innerHTML = `<span class="row"><b>${name}</b><output></output></span><input type="range" min="-100" max="100" step="1" data-key="${key}"><small>${tip}</small>`;
+    const input = label.querySelector('input');
+    input.addEventListener('input', () => {
+      if (!state.adj.hsl) state.adj.hsl = makeHsl();
+      state.adj.hsl[key][band] = Number(input.value);
+      label.querySelector('output').textContent = (input.value > 0 ? '+' : '') + input.value;
+      dirty = true; schedule();
+    });
+    input.addEventListener('dblclick', () => { if (state.adj.hsl) state.adj.hsl[key][band] = 0; syncMix(); dirty = true; schedule(); });
+    sl.appendChild(label);
+  }
+})();
+function syncMix() {
+  document.querySelectorAll('.band').forEach((b, i) => b.setAttribute('aria-pressed', String(i === band)));
+  for (const input of document.querySelectorAll('#mix-sliders input')) {
+    const v = state.adj.hsl ? state.adj.hsl[input.dataset.key][band] : 0;
+    input.value = v;
+    input.closest('label').querySelector('output').textContent = (v > 0 ? '+' : '') + v;
+  }
+}
+$('mix-reset').addEventListener('click', () => { state.adj.hsl = null; syncMix(); dirty = true; schedule(); });
 
 // ---------- entry points ----------
 $('file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) openFile(f); });

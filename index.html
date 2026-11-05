@@ -48,6 +48,7 @@
       <div class="tabs" role="tablist" id="tabs">
         <button role="tab" data-tab="read" aria-selected="true">Read</button>
         <button role="tab" data-tab="adjust" aria-selected="false">Adjust</button>
+        <button role="tab" data-tab="curves" aria-selected="false">Curves</button>
         <button role="tab" data-tab="look" aria-selected="false">Looks</button>
         <button role="tab" data-tab="match" aria-selected="false">Match</button>
       </div>
@@ -63,23 +64,49 @@
 
       <div class="pane" id="pane-adjust" role="tabpanel" hidden>
         <div id="sliders"></div>
+        <details class="mix" id="mix">
+          <summary>Colour mix</summary>
+          <p class="hint">Change one family of colours without touching the rest. Pick a colour, then move its sliders.</p>
+          <div class="bands" id="bands" role="group" aria-label="Colour family"></div>
+          <div id="mix-sliders"></div>
+          <button class="btn wide" id="mix-reset" type="button">Reset colour mix</button>
+        </details>
+      </div>
+
+      <div class="pane" id="pane-curves" role="tabpanel" hidden>
+        <p class="hint">Drag the line to bend it. Tap the line to add a point, double tap a point to remove it. Up makes that tone brighter.</p>
+        <div class="seg" id="curve-channels" role="group" aria-label="Curve channel">
+          <button type="button" data-ch="rgb" aria-pressed="true">RGB</button>
+          <button type="button" data-ch="r" aria-pressed="false" class="ch-r">Red</button>
+          <button type="button" data-ch="g" aria-pressed="false" class="ch-g">Green</button>
+          <button type="button" data-ch="b" aria-pressed="false" class="ch-b">Blue</button>
+        </div>
+        <div class="curve-wrap"><canvas id="curve" width="520" height="520" tabindex="0" role="application" aria-label="Tone curve editor. Arrow keys move the selected point, Tab or brackets pick another point, Delete removes it."></canvas></div>
+        <div class="curve-actions">
+          <button class="btn" id="curve-reset-ch" type="button">Reset this line</button>
+          <button class="btn" id="curve-reset-all" type="button">Reset all lines</button>
+        </div>
       </div>
 
       <div class="pane" id="pane-look" role="tabpanel" hidden>
-        <div class="looks" id="looks"></div>
+        <div id="looks"></div>
         <label class="slider"><span class="row"><b>Look strength</b><output id="look-out">100%</output></span>
           <input type="range" id="look-strength" min="0" max="100" value="100"></label>
         <p class="hint" id="look-blurb"></p>
       </div>
 
       <div class="pane" id="pane-match" role="tabpanel" hidden>
-        <p class="hint">Pick a photo whose colours you like. ColorCraft borrows its overall colour balance, not its content.</p>
+        <p class="hint">Pick a photo whose grade you like. ColorCraft learns its brightness and its colours, separately for darks, mids and lights, and applies that to your photo. It copies the grade, not the content.</p>
         <label class="btn wide" for="ref-file">Choose a reference photo</label>
         <input id="ref-file" type="file" accept="image/*" hidden>
         <div id="ref-info" hidden>
-          <div class="swatches" id="ref-swatches"></div>
-          <label class="slider"><span class="row"><b>Match strength</b><output id="ref-out">60%</output></span>
-            <input type="range" id="ref-strength" min="0" max="100" value="60"></label>
+          <div class="ref-head"><canvas id="ref-thumb" width="120" height="80" aria-label="Reference photo"></canvas><div class="swatches" id="ref-swatches"></div></div>
+          <label class="slider"><span class="row"><b>Colour match</b><output id="ref-color-out">80%</output></span>
+            <input type="range" id="ref-color" min="0" max="100" value="80"><small>How much of the reference's colour toning to borrow.</small></label>
+          <label class="slider"><span class="row"><b>Tone match</b><output id="ref-tone-out">50%</output></span>
+            <input type="range" id="ref-tone" min="0" max="100" value="50"><small>How much of its brightness and contrast to borrow.</small></label>
+          <button class="btn wide primary" id="ref-bake" type="button">Turn into editable curves</button>
+          <p class="hint">Bakes the match into the Red, Green and Blue lines so you can fine tune it. It is an approximation, so it can differ a little from the live match.</p>
           <button class="btn wide" id="ref-clear" type="button">Remove reference</button>
         </div>
         <h3 class="sub">Colours in your photo</h3>

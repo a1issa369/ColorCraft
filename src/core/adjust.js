@@ -4,6 +4,8 @@
 //   3. look:    contrast curve, saturation, split toning and fade, done on display values
 import { SRGB_TO_LIN, encode } from './color.js';
 import { makeImage } from './image.js';
+import { channelLuts, lutLookup, cloneCurves, curvesAreIdentity, scaleCurve, CHANNELS } from './curves.js';
+import { makeHsl, cloneHsl, hslIsNeutral, addHsl, makeHslMixer } from './hsl.js';
 
 export const DEFAULTS = Object.freeze({
   exposure: 0,      // stops, -3..3
@@ -16,6 +18,9 @@ export const DEFAULTS = Object.freeze({
   fade: 0,          // 0..1 lifts the blacks
   splitShadow: Object.freeze({ hue: 210, amount: 0 }),
   splitHighlight: Object.freeze({ hue: 35, amount: 0 }),
+  curves: null,      // tone curves per channel, see curves.js (null means straight lines)
+  hsl: null,         // colour mix per colour family, see hsl.js (null means no change)
+  lookCurves: null,  // curves contributed by a look, kept apart from the user's own curves
 });
 
 export const RANGES = {
@@ -35,6 +40,9 @@ export function makeAdjustments(overrides = {}) {
     ...overrides,
     splitShadow: { ...DEFAULTS.splitShadow, ...(overrides.splitShadow || {}) },
     splitHighlight: { ...DEFAULTS.splitHighlight, ...(overrides.splitHighlight || {}) },
+    curves: overrides.curves ? cloneCurves(overrides.curves) : null,
+    hsl: overrides.hsl ? cloneHsl(overrides.hsl) : null,
+    lookCurves: overrides.lookCurves ? cloneCurves(overrides.lookCurves) : null,
   };
 }
 
@@ -42,7 +50,8 @@ export function isNeutral(adj) {
   return (
     adj.exposure === 0 && adj.contrast === 0 && adj.highlights === 0 && adj.shadows === 0 &&
     adj.temperature === 0 && adj.tint === 0 && adj.saturation === 0 && adj.fade === 0 &&
-    adj.splitShadow.amount === 0 && adj.splitHighlight.amount === 0
+    adj.splitShadow.amount === 0 && adj.splitHighlight.amount === 0 &&
+    curvesAreIdentity(adj.curves) && curvesAreIdentity(adj.lookCurves) && hslIsNeutral(adj.hsl)
   );
 }
 
@@ -56,6 +65,11 @@ export function combine(base, look, strength = 1) {
   }
   if (look.splitShadow) out.splitShadow = { hue: look.splitShadow.hue, amount: look.splitShadow.amount * s };
   if (look.splitHighlight) out.splitHighlight = { hue: look.splitHighlight.hue, amount: look.splitHighlight.amount * s };
+  if (look.curves) {
+    out.lookCurves = cloneCurves();
+    for (const k of CHANNELS) if (look.curves[k]) out.lookCurves[k] = scaleCurve(look.curves[k], s);
+  }
+  if (look.hsl) out.hsl = addHsl(base.hsl, look.hsl, s);
   return out;
 }
 
@@ -124,6 +138,9 @@ export function applyAdjustments(src, adj, dst = makeImage(src.width, src.height
   const curve = a.contrast !== 0 ? contrastCurve(a.contrast) : null;
   const sat = 1 + a.saturation / 100;
   const useSat = a.saturation !== 0;
+  const luts = channelLuts(a.curves, a.lookCurves);
+  const mixer = makeHslMixer(a.hsl);
+  const mixed = [0, 0, 0];
   const fadeAmt = 0.1 * a.fade;
   const sh = a.splitShadow.amount > 0 ? hueToRgb(a.splitShadow.hue) : null;
   const hi = a.splitHighlight.amount > 0 ? hueToRgb(a.splitHighlight.hue) : null;
@@ -158,11 +175,25 @@ export function applyAdjustments(src, adj, dst = makeImage(src.width, src.height
       b = curve[k] * (1 - t) + curve[Math.min(k + 1, CURVE_N)] * t;
     }
 
+    if (luts) {
+      r = lutLookup(luts[0], r);
+      g2 = lutLookup(luts[1], g2);
+      b = lutLookup(luts[2], b);
+    }
+
     if (useSat) {
       const l = 0.2126 * r + 0.7152 * g2 + 0.0722 * b;
       r = l + (r - l) * sat;
       g2 = l + (g2 - l) * sat;
       b = l + (b - l) * sat;
+    }
+
+    if (mixer) {
+      r = r < 0 ? 0 : r > 1 ? 1 : r;
+      g2 = g2 < 0 ? 0 : g2 > 1 ? 1 : g2;
+      b = b < 0 ? 0 : b > 1 ? 1 : b;
+      mixer(r, g2, b, mixed);
+      r = mixed[0]; g2 = mixed[1]; b = mixed[2];
     }
 
     if (sh || hi) {

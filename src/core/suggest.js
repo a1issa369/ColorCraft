@@ -79,7 +79,7 @@ export function diagnose(stats) {
       id: 'crushed',
       severity: clamp(shadowClip * 5, 0.2, 1),
       title: 'Shadows are crushed',
-      detail: `${pct(shadowClip)} of the photo is pure black, so there is no detail left in the darkest areas. Lifting the shadows brings some back.`,
+      detail: `${pct(shadowClip)} of the photo is pure black, so there is no detail left in the darkest areas. Lifting the shadows brings some back. If this is a silhouette on purpose, leave it.`,
       fix: { shadows: Math.round(clamp(shadowClip * 400, 20, 70)) },
     });
   }

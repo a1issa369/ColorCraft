@@ -28,6 +28,17 @@ MUTATIONS = [
     ("palette.js", ".sort((x, y) => y.size - x.size)", ".sort((x, y) => x.size - y.size)", "palette not sorted by share"),
     ("image.js", "const s = maxEdge / long;", "const s = (maxEdge / long) * 0.9;", "downscale misses its target size"),
     ("color.js", "export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);", "export const clamp = (v, lo, hi) => (v < lo ? lo : v);", "clamp ignores the upper bound"),
+    ("curves.js", "if (s > 9) {", "if (s > 900) {", "spline can overshoot and double back"),
+    ("curves.js", "for (const s of active) { fns.push(makeSpline(s.rgb || IDENTITY)); fns.push(makeSpline(s[keys[c]] || IDENTITY)); }", "for (const s of active) { fns.push(makeSpline(s[keys[c]] || IDENTITY)); fns.push(makeSpline(s.rgb || IDENTITY)); }", "channel curve runs before the RGB curve"),
+    ("curves.js", "return points.map(([x, y]) => [x, x + (y - x) * s]);", "return points.map(([x, y]) => [x, y * s]);", "look curve strength blends toward black, not a straight line"),
+    ("hsl.js", "h = (h + (dh / 100) * HUE_RANGE_DEG + 360) % 360;", "h = (h - (dh / 100) * HUE_RANGE_DEG + 360) % 360;", "hue slider direction flipped"),
+    ("hsl.js", "s = clamp(s * (1 + ds / 100), 0, 1);", "s = clamp(s * (1 - ds / 100), 0, 1);", "colour mix saturation direction flipped"),
+    ("hsl.js", "t = t * t * (3 - 2 * t);", "t = t >= 0.5 ? 1 : 0;", "colour families switch abruptly at their edges"),
+    ("hsl.js", "v = clamp(v * (1 + (dl / 100) * LUM_RANGE * Math.min(1, s * 2)), 0, 1);", "v = clamp(v * (1 - (dl / 100) * LUM_RANGE * Math.min(1, s * 2)), 0, 1);", "colour mix brightness direction flipped"),
+    ("transfer.js", "if (tN > 0) L = L0 + tN * (quantile(", "if (tN > 0) L = L0 - tN * (quantile(", "tone match moves away from the reference"),
+    ("transfer.js", "+ rA - a, -MAX_SHIFT, MAX_SHIFT);", "+ sA - a, -MAX_SHIFT, MAX_SHIFT);", "colour match ignores the reference colour"),
+    ("transfer.js", "const ys = isotonic(measured.map((m) => m[1]));", "const ys = measured.map((m) => m[1]);", "fitted curves can run backwards"),
+    ("adjust.js", "curvesAreIdentity(adj.lookCurves) && hslIsNeutral(adj.hsl)", "curvesAreIdentity(adj.lookCurves)", "a colour mix does not count as an edit"),
 ]
 
 def suite():

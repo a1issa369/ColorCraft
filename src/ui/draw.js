@@ -7,28 +7,33 @@ export function drawHistogram(canvas, stats) {
   const ctx = canvas.getContext('2d');
   const { width: w, height: h } = canvas;
   ctx.clearRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
   ctx.strokeStyle = C.line;
   ctx.lineWidth = 1;
   for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo((w * i) / 4, 0); ctx.lineTo((w * i) / 4, h); ctx.stroke(); }
-  const channels = [['r', 'rgba(215,110,100,0.8)'], ['g', 'rgba(110,190,130,0.8)'], ['b', 'rgba(110,150,215,0.8)']];
   // Smooth the bins a little and scale by a high percentile so one spike does not flatten everything else.
   const smooth = (arr) => Array.from(arr, (_, i) => {
     let s = 0, c = 0;
     for (let k = -2; k <= 2; k++) { const v = arr[i + k]; if (v !== undefined) { s += v; c++; } }
     return s / c;
   });
-  const sorted = Array.from(stats.hist.luma).sort((a, b) => a - b);
-  const peak = Math.max(sorted[Math.floor(sorted.length * 0.985)] * 1.4, 1e-4);
+  const all = [...stats.hist.r, ...stats.hist.g, ...stats.hist.b].sort((a, b) => a - b);
+  const peak = Math.max(all[Math.floor(all.length * 0.99)] * 1.5, 1e-4);
   const path = (arr) => {
     ctx.beginPath();
-    arr.forEach((v, i) => { const x = (i / 255) * w, y = h - Math.min(1, v / peak) * (h - 4); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.moveTo(0, h);
+    arr.forEach((v, i) => ctx.lineTo((i / 255) * w, h - Math.min(1, v / peak) * (h - 4)));
+    ctx.lineTo(w, h);
+    ctx.closePath();
   };
-  for (const [k, col] of channels) { path(smooth(stats.hist[k])); ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.stroke(); }
-  const luma = smooth(stats.hist.luma);
-  path(luma);
-  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-  ctx.fillStyle = 'rgba(235,230,218,0.22)'; ctx.fill();
-  path(luma); ctx.strokeStyle = C.text; ctx.lineWidth = 1.6; ctx.stroke();
+  // Filled channels added together, as in Lightroom: where red, green and blue overlap you see yellow, cyan, magenta and white.
+  ctx.globalCompositeOperation = 'lighter';
+  for (const [k, col] of [['r', 'rgb(190,52,46)'], ['g', 'rgb(46,170,84)'], ['b', 'rgb(52,96,200)']]) {
+    path(smooth(stats.hist[k]));
+    ctx.fillStyle = col;
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
 }
 
 export function drawScope(canvas, stats) {

@@ -9,11 +9,11 @@ Open the live demo (GitHub Pages, once enabled) or run it locally:
 
 ```
 node scripts/serve.js 8080     # then open http://localhost:8080
-npm test                       # 149 tests, Node 22+
+npm test                       # 152 tests, Node 22+
 python3 scripts/mutation_check.py
 ```
 
-No photo handy? Three deliberately broken sample photos are built in (too dark and blue, flat and hazy, too orange).
+No photo handy? Three real sample photos sit on the home page, each looping a before and after wipe. The "after" is made by the same engine as the editor, from the look and adjustments listed in `src/ui/featured.js`, and opening a card puts the original photo in the editor. To use your own, drop JPEGs into `assets/samples/` and edit that list.
 
 ## What it does
 
@@ -91,12 +91,12 @@ Gradients only for now. A paintbrush and a pick-by-brightness mask are the next 
 - **Fixes fought each other.** Pulling highlights down flattens the photo, which triggers a contrast fix, which clips highlights again. A one shot fix list could make things worse, so the auto grade measures after each round and keeps the best one. On degenerate flat images it used to diverge; "keep the best round" stopped that.
 - **Boosting saturation amplified casts.** A cast counts as colour, so a tinted photo looked colourful and a muted one looked fine. The auto grade now settles the cast first and judges saturation after.
 - **Black and white photos were called muted.** Tinted monochrome (sepia) has chroma but only one hue. The muted check now compares how varied the colours are against how strong they are.
-- **Sample photos hid bugs.** My first "too orange" sample read as cool because the scene was blue dominant. I rebalanced the scene and tested that each broken sample is diagnosed the way it was broken.
+- **Sample photos hid bugs.** My first "too orange" sample read as cool because the scene was blue dominant. I rebalanced the scene and tested that each broken sample is diagnosed the way it was broken. The synthetic scenes still back the tests, but the home page now uses real photos, which is where "Fix everything" turned out to strip the gold from a sunset: it treats a strong cast as a mistake, so those cards use a look instead.
 - **Float noise in the UI.** A fix showed as `0.7000000000000001`. Fix values are now rounded to slider steps, and a test pins that.
 
 ## Testing
 
-149 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 44 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
+152 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 44 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
 
 The browser layer (`src/main.js`, `src/ui`) is checked by hand with Playwright screenshots at phone and desktop widths, not by automated tests.
 

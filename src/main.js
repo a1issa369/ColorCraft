@@ -9,7 +9,7 @@ import { lookProfile, matchLook, fitCurves } from './core/transfer.js';
 import { History } from './core/history.js';
 import { MASK_KEYS, MAX_MASKS, MASK_STARTERS, makeMask, cloneMasks, masksAreNeutral, AlphaCache, applyMasks } from './core/mask.js';
 import { dominantColors } from './core/palette.js';
-import { SAMPLES, renderSample } from './core/samples.js';
+import { buildFeatured } from './ui/featured.js';
 import { drawHistogram, drawScope } from './ui/draw.js';
 import { createCurveEditor } from './ui/curveEditor.js';
 import { CONTROLS } from './ui/teach.js';
@@ -685,21 +685,10 @@ window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => { e.preventDefault(); });
 $('new-photo').addEventListener('click', () => { $('editor').hidden = true; $('empty').hidden = false; $('new-photo').hidden = true; state.work = null; });
 
-(function buildSamples() {
-  const host = $('samples');
-  for (const s of SAMPLES) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'sample';
-    const c = document.createElement('canvas');
-    const thumb = renderSample(s.id, 240, 160);
-    c.width = 240; c.height = 160;
-    c.getContext('2d').putImageData(new ImageData(thumb.data, 240, 160), 0, 0);
-    const n = document.createElement('span'); n.textContent = s.name;
-    const m = document.createElement('small'); m.textContent = s.note;
-    b.append(c, n, m);
-    b.addEventListener('click', () => start(imageToCanvas(renderSample(s.id, 1280, 853))));
-    host.appendChild(b);
-  }
-})();
+buildFeatured($('samples'), async (f) => {
+  const blob = await (await fetch(f.file)).blob();
+  // Set the type ourselves: the decoder insists on an image type, and not every static host labels .jpg files.
+  openFile(new File([blob], f.file.split('/').pop(), { type: 'image/jpeg' }));
+}).then((n) => { if (!n) $('samples-wrap').hidden = true; });
 
 window.__gs = { state, start }; // handy for the browser checks

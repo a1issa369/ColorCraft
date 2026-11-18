@@ -1,3 +1,5 @@
+# Publishes the app to GitHub Pages every time main changes (or when you press "Run workflow" in the Actions tab).
+# One-time setup: repo Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
 name: pages
 on:
   push: { branches: [main] }
@@ -10,10 +12,16 @@ jobs:
     environment: { name: github-pages, url: "${{ steps.deployment.outputs.page_url }}" }
     steps:
       - uses: actions/checkout@v4
-      - name: Stage the static site
-        run: mkdir _site && cp -r index.html styles.css src _site/
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # npm ci installs exactly what package-lock.json says; the fallback covers a repo that has not committed the lock file yet.
+      - run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      # A broken commit should not reach the live site: check types and run the tests before building.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
-        with: { path: _site }
+        with: { path: dist }
       - id: deployment
         uses: actions/deploy-pages@v4

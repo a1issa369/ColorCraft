@@ -1,0 +1,7 @@
+{
+  // Tests are checked strictly except that small callback parameters may stay untyped.
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noImplicitAny": false },
+  "include": ["./**/*.ts", "../src/core"],
+  "exclude": []
+}

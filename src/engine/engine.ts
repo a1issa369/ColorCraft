@@ -1,13 +1,12 @@
 // The render engine. It owns the canvases and pixel buffers and redraws the photo whenever the store changes.
 // It lives outside React on purpose: a slider drag fires dozens of changes a second, and the photo must keep up.
-import { applyAdjustments, makeAdjustments } from '../core/adjust.ts';
-import type { Adjustments } from '../core/adjust.ts';
+import { applyAdjustments } from '../core/adjust.ts';
 import { analyze } from '../core/analyze.ts';
 import { cloneCurves, composePoints } from '../core/curves.ts';
 import { downscale } from '../core/image.ts';
 import { AlphaCache, MAX_MASKS, lumaMap, rangeAlpha } from '../core/mask.ts';
 import { dominantColors } from '../core/palette.ts';
-import { autoGrade, diagnose } from '../core/suggest.ts';
+import { diagnose } from '../core/suggest.ts';
 import type { Finding } from '../core/suggest.ts';
 import { fitCurves, lookProfile, matchLook } from '../core/transfer.ts';
 import type { Curves, Img } from '../core/types.ts';
@@ -113,11 +112,6 @@ export class Engine {
   }
 
   // ---- things the panels ask for ----
-  /** Suggested adjustments for this photo, keeping the user's curves and colour mix. */
-  autoGrade(adj: Adjustments): Adjustments {
-    return this.work ? autoGrade(this.work, makeAdjustments({ curves: adj.curves, hsl: adj.hsl })) : adj;
-  }
-
   /** Read a reference photo and learn its grade. */
   async makeReference(file: File): Promise<RefMatch> {
     const bmp = await decodeFile(file);

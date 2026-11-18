@@ -9,10 +9,12 @@ const isApplied = (f: Finding, adj: Adjustments): boolean =>
   !!f.fix && Object.entries(f.fix).every(([k, v]) => Math.abs(adj[k as keyof typeof f.fix & keyof Adjustments] as number - (v as number)) < 1e-6);
 
 export function ReadPane() {
-  const { store, engine } = useEditor();
+  const { store } = useEditor();
   const findings = useEditorState((s) => s.findings);
   const adj = useEditorState((s) => s.settings.adj);
   const stats = useEditorState((s) => s.stats);
+  const fixable = findings.filter((f) => f.fix);
+  const allDone = fixable.every((f) => isApplied(f, adj));
   const hist = useRef<HTMLCanvasElement | null>(null);
   const scope = useRef<HTMLCanvasElement | null>(null);
 
@@ -34,10 +36,18 @@ export function ReadPane() {
           <figcaption className="mt-1.5 text-[0.8rem] text-muted">Colour. Distance from the centre is how strong.</figcaption>
         </figure>
       </div>
-      <Button primary wide onClick={() => store.edit((d) => { d.adj = engine.autoGrade(d.adj); }, { commit: true })}>
-        Fix everything for me
-      </Button>
-      <ul className="mt-3.5 grid list-none gap-2.5 p-0">
+      {fixable.length > 1 && (
+        <>
+          <Button primary wide disabled={allDone}
+            onClick={() => store.edit((d) => { for (const f of fixable) Object.assign(d.adj, f.fix); }, { commit: true })}>
+            {allDone ? 'All suggestions applied' : `Apply all ${fixable.length} suggestions below`}
+          </Button>
+          <p className="mt-1.5 mb-0 text-[0.8rem] text-muted">
+            Same as pressing every Apply this fix button below. It only moves the sliders those fixes name. Your curves, colour mix, looks and masks stay as they are, and Undo takes it back in one step.
+          </p>
+        </>
+      )}
+      <ul aria-label="Suggestions" className="mt-3.5 grid list-none gap-2.5 p-0">
         {findings.map((f) => {
           const done = isApplied(f, adj);
           const fix = f.fix;

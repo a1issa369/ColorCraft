@@ -99,7 +99,8 @@ test('masks: add selects it and shows the full result, the count is capped, remo
   assert.equal(s.getState().settings.maskSel, s.getState().settings.masks[0].id);
   for (let i = 0; i < MAX_MASKS + 2; i++) s.addMask({});
   assert.equal(s.getState().settings.masks.length, MAX_MASKS);
-  const [first, , last] = s.getState().settings.masks;
+  const all = s.getState().settings.masks;
+  const first = all[0], last = all[all.length - 1];
   s.selectMask(first.id);
   s.removeSelectedMask();
   assert.equal(s.getState().settings.masks.length, MAX_MASKS - 1);
@@ -146,4 +147,23 @@ test('closing the photo hides the editor but keeps nothing stale on screen', () 
   s.closePhoto();
   assert.equal(s.getState().hasPhoto, false);
   assert.equal(s.getState().stats, null);
+});
+
+test('a brush stroke is one undo step, and the brush tool settings are not part of the edit', () => {
+  const s = open();
+  s.addMask({ kind: 'brush', adj: { exposure: 0.3 } });
+  const id = s.getState().settings.maskSel;
+  const paint = (x: number) => s.edit((d) => { d.masks.find((m) => m.id === id)!.strokes.push({ pts: [x, 0.5], size: 0.05, soft: 0.5, erase: false }); });
+  paint(0.2); paint(0.4);
+  s.commit();
+  s.setBrush({ size: 0.12, erase: true });
+  assert.equal(s.getState().canUndo, true);
+  assert.equal(s.getState().settings.masks[0].strokes.length, 2);
+  s.undo();
+  assert.equal(s.getState().settings.masks[0].strokes.length, 0);
+  s.redo();
+  assert.equal(s.getState().settings.masks[0].strokes.length, 2);
+  assert.equal(s.getState().brush.size, 0.12);
+  assert.equal(s.getState().brush.erase, true);
+  assert.equal(s.getState().brush.soft, 0.5);
 });

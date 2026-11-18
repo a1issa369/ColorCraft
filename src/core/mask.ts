@@ -6,18 +6,26 @@ import type { Img, SliderKey } from './types.ts';
 
 export type MaskKey = Extract<SliderKey, 'exposure' | 'contrast' | 'highlights' | 'shadows' | 'temperature' | 'saturation'>;
 
-export type MaskKind = 'linear' | 'range';
+export type MaskKind = 'linear' | 'range' | 'radial' | 'brush';
+
+/** One painted stroke. Points are x,y pairs as fractions of the photo; size is a radius as a fraction of the photo's width. */
+export interface Stroke { pts: number[]; size: number; soft: number; erase: boolean }
 
 /**
  * A mask with its own small set of adjustments. Two kinds share one shape so saving, undo and cloning stay simple:
  * - 'linear' uses the four point fields (fractions of the photo).
  * - 'range' picks pixels by brightness: full effect between lo and hi (0..1), fading out over `soft` either side.
+ * - 'radial' is an oval centred on (x1, y1) with radii rx and ry (fractions of width and height), tilted by `angle`, edge softened by `feather`.
+ * - 'brush' is painted by hand: the strokes are the mask.
  */
 export interface Mask {
   id: string;
   kind: MaskKind;
   x1: number; y1: number; x2: number; y2: number;
   lo: number; hi: number; soft: number;
+  rx: number; ry: number; feather: number;
+  angle: number;   // radial only: tilt of the oval in radians, clockwise on screen
+  strokes: Stroke[];
   invert: boolean;
   adj: Record<MaskKey, number>;
 }
@@ -25,7 +33,9 @@ export interface Mask {
 export type MaskInput = Partial<Omit<Mask, 'adj'>> & { adj?: Partial<Record<MaskKey, number>> };
 
 export const MASK_KEYS: readonly MaskKey[] = ['exposure', 'contrast', 'highlights', 'shadows', 'temperature', 'saturation'];
-export const MAX_MASKS = 3;
+export const MAX_MASKS = 10;
+/** Total painted points per brush mask, so a long scribble cannot make the preview crawl. */
+export const MAX_BRUSH_POINTS = 6000;
 
 let nextId = 1;
 
@@ -41,8 +51,10 @@ export function makeMask(over: MaskInput = {}): Mask {
     kind: 'linear',
     x1: 0.5, y1: 0, x2: 0.5, y2: 0.5,
     lo: 0.5, hi: 1, soft: 0.15,
+    rx: 0.3, ry: 0.25, feather: 0.4, angle: 0,
     invert: false,
     ...over,
+    strokes: (over.strokes || []).map((t) => ({ ...t, pts: t.pts.slice() })),
     adj,
   };
 }
@@ -72,6 +84,68 @@ export function linearAlpha(m: Mask, w: number, h: number, out: Float32Array = n
   return out;
 }
 
+/** An oval measured in real pixels, so a wide photo gets a wide oval. Full inside, fading to nothing at the rim over `feather`. */
+export function radialAlpha(m: Mask, w: number, h: number, out: Float32Array = new Float32Array(w * h)): Float32Array {
+  const cx = m.x1 * w, cy = m.y1 * h;
+  const rx = Math.max(1, m.rx * w), ry = Math.max(1, m.ry * h);
+  const f = Math.min(1, Math.max(0.01, m.feather));
+  const inv = m.invert;
+  const ca = Math.cos(m.angle), sa = Math.sin(m.angle);
+  for (let y = 0; y < h; y++) {
+    const py = y + 0.5 - cy;
+    for (let x = 0; x < w; x++) {
+      const px = x + 0.5 - cx;
+      const dx = (px * ca + py * sa) / rx, dy = (-px * sa + py * ca) / ry;   // into the oval's own tilted axes
+      const a = 1 - smoothstep01((Math.sqrt(dx * dx + dy * dy) - (1 - f)) / f);
+      out[y * w + x] = inv ? 1 - a : a;
+    }
+  }
+  return out;
+}
+
+/** Paint every stroke in order into a w*h map. Paint adds to what is there, erase takes away, overlaps never overshoot 1. */
+export function brushAlpha(m: Mask, w: number, h: number, out: Float32Array = new Float32Array(w * h)): Float32Array {
+  out.fill(0);
+  const cover = new Float32Array(w * h);
+  for (const st of m.strokes) {
+    const R = Math.max(1, st.size * w);
+    const core = R * (1 - Math.min(1, Math.max(0, st.soft)));
+    const gap = Math.max(1, R * 0.2);
+    cover.fill(0);
+    const stamp = (cx: number, cy: number) => {
+      const x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(w - 1, Math.ceil(cx + R));
+      const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(h - 1, Math.ceil(cy + R));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+          const v = d <= core ? 1 : d >= R ? 0 : 1 - smoothstep01((d - core) / (R - core));
+          if (v > cover[y * w + x]) cover[y * w + x] = v;
+        }
+      }
+    };
+    const p = st.pts;
+    let px = p[0] * w, py = p[1] * h;
+    stamp(px, py);
+    for (let i = 2; i + 1 < p.length; i += 2) {
+      const qx = p[i] * w, qy = p[i + 1] * h;
+      const n = Math.max(1, Math.ceil(Math.hypot(qx - px, qy - py) / gap));
+      for (let k = 1; k <= n; k++) stamp(px + ((qx - px) * k) / n, py + ((qy - py) * k) / n);
+      px = qx; py = qy;
+    }
+    if (st.erase) for (let i = 0; i < out.length; i++) out[i] *= 1 - cover[i];
+    else for (let i = 0; i < out.length; i++) out[i] += cover[i] - out[i] * cover[i];
+  }
+  if (m.invert) for (let i = 0; i < out.length; i++) out[i] = 1 - out[i];
+  return out;
+}
+
+const strokeHash = (list: Stroke[]): string => {
+  let h = 2166136261 >>> 0;
+  const mix = (v: number) => { h = Math.imul(h ^ Math.round(v * 1e5), 16777619) >>> 0; };
+  for (const t of list) { mix(t.size); mix(t.soft); mix(t.erase ? 1 : 0); mix(t.pts.length); for (const v of t.pts) mix(v); }
+  return `${list.length}.${h}`;
+};
+
 /** Brightness of every pixel, 0..1, using the standard weights for how bright each colour looks. */
 export function lumaMap(img: Img, out: Float32Array = new Float32Array(img.width * img.height)): Float32Array {
   const d = img.data;
@@ -92,7 +166,7 @@ export function rangeAlpha(m: Mask, luma: Float32Array, out: Float32Array = new 
   return out;
 }
 
-/** Remembers the last few gradient maps so a slider drag does not rebuild them every frame. */
+/** Remembers the last few position-based maps so a slider drag does not rebuild them every frame. */
 export class AlphaCache {
   limit: number;
   map = new Map<string, Float32Array>();
@@ -103,9 +177,20 @@ export class AlphaCache {
     if (!this.tmp[slot] || this.tmp[slot].length !== n) this.tmp[slot] = new Float32Array(n);
     return this.tmp[slot];
   }
-  /** Gradient masks only. A brightness mask depends on the picture, so use rangeAlpha for those. */
+  /** Masks that depend on position only. A brightness mask depends on the picture, so use rangeAlpha for those. */
   get(m: Mask, w: number, h: number): Float32Array {
-    if (m.kind !== 'linear') throw new Error('AlphaCache only holds gradient masks');
+    if (m.kind === 'range') throw new Error('AlphaCache holds masks that depend on position only');
+    if (m.kind === 'radial' || m.kind === 'brush') {
+      const k = m.kind === 'radial'
+        ? `${m.id}|o|${m.x1}|${m.y1}|${m.rx}|${m.ry}|${m.feather}|${m.angle}|${m.invert}|${w}x${h}`
+        : `${m.id}|b|${strokeHash(m.strokes)}|${m.invert}|${w}x${h}`;
+      let hit = this.map.get(k);
+      if (hit) { this.map.delete(k); this.map.set(k, hit); return hit; }
+      hit = m.kind === 'radial' ? radialAlpha(m, w, h) : brushAlpha(m, w, h);
+      this.map.set(k, hit);
+      if (this.map.size > this.limit) this.map.delete(this.map.keys().next().value as string);
+      return hit;
+    }
     const key = `${m.id}|${m.x1}|${m.y1}|${m.x2}|${m.y2}|${m.invert}|${w}x${h}`;
     let a = this.map.get(key);
     if (a) { this.map.delete(key); this.map.set(key, a); return a; }
@@ -129,6 +214,7 @@ export function applyMasks(img: Img, masks: Mask[] | null | undefined, cache: Al
   for (const m of list) {
     if (maskIsNeutral(m)) continue;
     const alpha = m.kind === 'range' ? rangeAlpha(m, luma!, cache.scratch(1, w * h)) : cache.get(m, w, h);
+    if (!alpha.some((v) => v > 0)) continue;   // nothing selected (an empty brush, an oval off the photo): skip the whole edit
     const edited = applyAdjustments(img, makeAdjustments(m.adj), scratch);
     const e = edited.data;
     for (let p = 0, i = 0; p < alpha.length; p++, i += 4) {
@@ -162,4 +248,18 @@ export const RANGE_STARTERS: MaskStarter[] = [
     mask: { kind: 'range', lo: 0, hi: 0.35, soft: 0.2, adj: { exposure: 0.4, shadows: 30 } } },
   { id: 'cool-shadows', name: 'Cool the shadows', blurb: 'Adds a cooler tint to dark areas only. A classic way to make warm light feel warmer.',
     mask: { kind: 'range', lo: 0, hi: 0.4, soft: 0.25, adj: { temperature: -22, saturation: 8 } } },
+];
+
+export const OVAL_STARTERS: MaskStarter[] = [
+  { id: 'spotlight', name: 'Spotlight the subject', blurb: 'An oval that lifts light and contrast in the middle. Drag it over your subject.',
+    mask: { kind: 'radial', x1: 0.5, y1: 0.5, rx: 0.28, ry: 0.3, feather: 0.5, adj: { exposure: 0.4, contrast: 12 } } },
+  { id: 'vignette', name: 'Darken the edges', blurb: 'Everything outside a big oval gets darker, which pulls the eye to the middle.',
+    mask: { kind: 'radial', x1: 0.5, y1: 0.5, rx: 0.5, ry: 0.5, feather: 0.7, invert: true, adj: { exposure: -0.7 } } },
+];
+
+export const BRUSH_STARTERS: MaskStarter[] = [
+  { id: 'dodge', name: 'Paint light in', blurb: 'Brush over anything you want brighter, like a face in shade.',
+    mask: { kind: 'brush', adj: { exposure: 0.45, shadows: 20 } } },
+  { id: 'burn', name: 'Paint light out', blurb: 'Brush over anything you want darker, like a distracting bright patch.',
+    mask: { kind: 'brush', adj: { exposure: -0.5 } } },
 ];

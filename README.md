@@ -33,7 +33,7 @@ If the repository is not named `ColorCraft`, or the site is served from a custom
 - **Curves**: a Lightroom-style tone curve with RGB, Red, Green and Blue lines drawn over a live histogram. Drag to bend, tap to add a point, double tap to remove one. Works with touch, mouse and keyboard.
 - **Looks**: 17 starting points in five groups (Natural, Film, Cinematic, Moody, Mono) with a strength slider. A look is just slider values, a curve and a colour mix, so nothing is hidden.
 - **Match**: pick a photo whose grade you like and ColorCraft learns its brightness and its colour toning, separately for darks, mids and lights. Separate colour and tone sliders. *Turn into editable curves* bakes the match into the Red, Green and Blue lines so you can fine tune it.
-- **Gradient and brightness masks**: limit an edit to part of the photo. A gradient is strongest at its start dot and fades to nothing at its end dot, so you can darken a sky without touching the ground. Drag the dots, flip the side, show the area as a red overlay, and give each mask its own exposure, contrast, highlights, shadows, temperature and saturation. Up to three, with one-tap starters (darken the sky, lift the ground, warm the horizon). A brightness mask picks pixels by how light or dark they are instead of where they sit: set From, To and Softness, and it follows the tones wherever they appear (tame the brights, open the darks, cool the shadows).
+- **Gradient, brightness, oval and brush masks**: limit an edit to part of the photo. A gradient is strongest at its start dot and fades to nothing at its end dot, so you can darken a sky without touching the ground. Drag the dots, flip the side, show the area as a red overlay, and give each mask its own exposure, contrast, highlights, shadows, temperature and saturation. Up to ten, with one-tap starters (darken the sky, lift the ground, warm the horizon). A brightness mask picks pixels by how light or dark they are instead of where they sit: set From, To and Softness, and it follows the tones wherever they appear (tame the brights, open the darks, cool the shadows). An oval is strongest in its middle and fades toward the rim; drag its centre, its edge dots to resize it, and the dot above it (or the Angle slider) to tilt it, and soften the edge (spotlight a subject, darken the edges). A brush masks exactly what you paint, with size, softness and an eraser, and each stroke is one undo step.
 - **Undo and redo**: buttons plus Ctrl or Cmd+Z, Shift+Ctrl or Cmd+Z and Ctrl+Y. A whole slider or curve drag is one step, and it covers sliders, curves, colour mix, looks, Fix everything and the reference match.
 - Before and after handle (drag or arrow keys), hold to see the original, save a full size JPEG (up to 4000 px), copy your settings as text.
 
@@ -60,7 +60,7 @@ All colour maths is in `src/core` with no browser dependencies, so it is testabl
 
 - **Gray world is a guess.** A photo of a blue sea really is blue. The cast finding is worded as "leans cool, if it does not feel right...", and the estimator down-weights strong colours instead of trusting them, but it can still be wrong on single colour scenes.
 - **The preview is a 1280 px copy.** Sliders stay smooth on a phone. Export re-grades the full image (capped at 4000 px) with the same code, so what you see is what you save.
-- **No raw support, and masks are gradients and brightness ranges only.** This teaches grading. It is not a Lightroom replacement.
+- **No raw support, and masks are gradients, ovals, brightness ranges and a hand brush.** This teaches grading. It is not a Lightroom replacement.
 - **Colour is managed as sRGB only.** Wide gamut photos are treated as sRGB.
 - **React for the screen, not for the pixels.** Re-rendering a component tree on every slider tick would waste the time the photo needs, so the render loop lives outside React (see below).
 
@@ -92,11 +92,15 @@ Stacked boosts (exposure, saturation, a look's colour push) can ask for a colour
 
 ## How the masks work
 
-A mask is a soft map from 0 to 1 over the photo, measured in real pixels so the angle is true on a wide photo. The photo is graded as usual, then each mask's own small edit is computed and blended in by that map: full strength where the map is 1, none where it is 0. Masks go last, on top of looks and the reference match, in the order you made them. The strength map is cached while you drag a slider and rebuilt only when a dot moves. With three masks on, a slider tick costs about 50 ms against about 33 ms with none (measured on a slow cloud machine).
+A mask is a soft map from 0 to 1 over the photo, measured in real pixels so the angle is true on a wide photo. The photo is graded as usual, then each mask's own small edit is computed and blended in by that map: full strength where the map is 1, none where it is 0. Masks go last, on top of looks and the reference match, in the order you made them. The strength map is cached while you drag a slider and rebuilt only when a dot moves. Each extra mask adds roughly one more adjustment pass over the preview, so ten masks cost noticeably more than one while you drag a slider.
 
 A brightness mask has no position at all. Its map comes from each pixel's brightness (standard luma weights) in the photo as graded before any mask runs, so one mask's edit never shifts where the next one lands. Full strength sits between From and To and fades out over Softness on either side. Because the map depends on the picture, it is recomputed per render rather than cached.
 
-A paintbrush mask is the next step, and there is no automatic sky or subject selection.
+An oval is the same kind of position map as a gradient, with its radii measured in real pixels (a fraction of the photo's width and of its height) along axes tilted by its angle, so it stays an oval on a wide photo.
+
+A brush mask stores its strokes as points and radii in fractions of the photo, so the painting fits the preview and the full size export. The map is rebuilt from the strokes: each stroke is stamped along its path into its own coverage layer, then added to or erased from the running map, so overlaps never go past full strength and an eraser stroke only removes what was painted before it. Painting is capped at 6000 points per brush mask to keep the preview responsive. The map is cached by a hash of the strokes.
+
+There is no automatic sky or subject selection.
 
 ## Tradeoffs for the curves and matching
 

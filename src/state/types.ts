@@ -44,6 +44,7 @@ export interface EditorState {
   hold: boolean;              // showing the original in full
   tab: TabId;
   maskArea: boolean;          // red overlay while editing a mask
+  brush: { size: number; soft: number; erase: boolean };   // the paintbrush tool: radius as a fraction of the photo's width
   findings: Finding[];
   stats: Analysis | null;     // of the graded preview
   canUndo: boolean;

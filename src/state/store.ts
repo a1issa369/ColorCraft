@@ -31,6 +31,7 @@ const signature = (s: Settings): string =>
 
 const initial = (): EditorState => ({
   photoId: 0, hasPhoto: false, settings: makeSettings(), split: 0.5, hold: false, tab: 'read', maskArea: true,
+  brush: { size: 0.05, soft: 0.5, erase: false },
   findings: [], stats: null, canUndo: false, canRedo: false, notice: '', error: '',
 });
 
@@ -119,6 +120,7 @@ export class EditorStore {
   setSplit(split: number): void { this.set({ split: Math.min(1, Math.max(0, split)) }); }
   setHold(hold: boolean): void { if (hold !== this.state.hold) this.set({ hold }); }
   toggleMaskArea(): void { this.set({ maskArea: !this.state.maskArea }); }
+  setBrush(b: Partial<EditorState['brush']>): void { this.set({ brush: { ...this.state.brush, ...b } }); }
   setStats(stats: Analysis): void { this.set({ stats }); }
   setNotice(notice: string): void { this.set({ notice }); }
   setError(error: string): void { this.set({ error }); }

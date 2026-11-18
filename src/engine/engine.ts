@@ -5,7 +5,7 @@ import type { Adjustments } from '../core/adjust.ts';
 import { analyze } from '../core/analyze.ts';
 import { cloneCurves, composePoints } from '../core/curves.ts';
 import { downscale } from '../core/image.ts';
-import { AlphaCache, lumaMap, rangeAlpha } from '../core/mask.ts';
+import { AlphaCache, MAX_MASKS, lumaMap, rangeAlpha } from '../core/mask.ts';
 import { dominantColors } from '../core/palette.ts';
 import { autoGrade, diagnose } from '../core/suggest.ts';
 import type { Finding } from '../core/suggest.ts';
@@ -35,7 +35,7 @@ export class Engine {
   private readonly orig = canvas();         // the ungraded photo, for the left side of the compare
   private readonly grad = canvas();         // the graded photo at preview size
   private readonly gradSmall = canvas();    // the graded draft
-  private readonly renderCache = new AlphaCache(8);    // mask strength maps, so a drag does not rebuild them every frame
+  private readonly renderCache = new AlphaCache(MAX_MASKS + 2);    // mask strength maps, so a drag does not rebuild them every frame
   private readonly overlayCache = new AlphaCache(4);
   private view: HTMLCanvasElement | null = null;
   private tint: HTMLCanvasElement | null = null;
@@ -238,6 +238,7 @@ export class Engine {
     const a = this.overlayCache.get(m, w, h);
     for (let p = 0, i = 3; p < a.length; p++, i += 4) d[i] = a[p] * 150;
     ctx.putImageData(this.tintImg, 0, 0);
+    if (m.kind !== 'linear') return;
     ctx.save();
     ctx.strokeStyle = 'rgba(235,230,218,.9)'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 5]);
     ctx.beginPath(); ctx.moveTo(m.x1 * w, m.y1 * h); ctx.lineTo(m.x2 * w, m.y2 * h); ctx.stroke();

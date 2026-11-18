@@ -32,6 +32,14 @@ export function describeSettings(s: Settings): string {
       lines.push(`Brightness ${i + 1} (${m.invert ? 'everything except ' : ''}tones from ${pct(m.lo)} to ${pct(m.hi)} brightness, fading over ${pct(m.soft)}): ${parts.join(', ')}`);
       return;
     }
+    if (m.kind === 'radial') {
+      lines.push(`Oval ${i + 1} (${m.invert ? 'everything outside, ' : ''}centred ${pct(m.x1)} across and ${pct(m.y1)} down, ${pct(m.rx * 2)} wide and ${pct(m.ry * 2)} tall${m.angle ? `, tilted ${Math.round((m.angle * 180) / Math.PI)} degrees` : ''}, edge softness ${pct(m.feather)}): ${parts.join(', ')}`);
+      return;
+    }
+    if (m.kind === 'brush') {
+      lines.push(`Brush ${i + 1} (${m.invert ? 'everything except ' : ''}${m.strokes.length} hand-painted stroke${m.strokes.length === 1 ? '' : 's'}): ${parts.join(', ')}`);
+      return;
+    }
     lines.push(`Gradient ${i + 1} (${m.invert ? 'flipped, ' : ''}strongest at ${pct(m.x1)} across and ${pct(m.y1)} down, gone by ${pct(m.x2)} across and ${pct(m.y2)} down): ${parts.join(', ')}`);
   });
   if (s.ref) lines.push(`Matched to a reference: colour ${pct(s.ref.color)}, tone ${pct(s.ref.tone)}`);

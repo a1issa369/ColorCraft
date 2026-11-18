@@ -1,25 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent, RefObject } from 'react';
+import { MAX_BRUSH_POINTS } from '../core/mask.ts';
 import type { Mask } from '../core/mask.ts';
 import { useEditor, useEditorState } from '../state/hooks.tsx';
 import { Button } from './ui.tsx';
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
-/** One draggable dot of a mask gradient. Pointer drag and arrow keys both move it. */
-function MaskHandle({ kind, mask, stage }: { kind: 'start' | 'end'; mask: Mask; stage: RefObject<HTMLDivElement | null> }) {
+/** One draggable dot on the photo. Pointer drag and arrow keys both move it. `at` is where it sits, `onMove` gets the wanted position (fractions). */
+function Dot({ id, label, at, filled, onMove, stage }: {
+  id: string; label: string; at: [number, number]; filled: boolean; onMove: (x: number, y: number) => void; stage: RefObject<HTMLDivElement | null>;
+}) {
   const { store } = useEditor();
   const dragging = useRef(false);
-  const kx = kind === 'start' ? 'x1' : 'x2', ky = kind === 'start' ? 'y1' : 'y2';
-  const x = mask[kx], y = mask[ky];
-  const set = (nx: number, ny: number) => store.edit((d) => {
-    const m = d.masks.find((q) => q.id === mask.id);
-    if (m) { m[kx] = clamp01(nx); m[ky] = clamp01(ny); }
-  });
-  const onMove = (e: PointerEvent<HTMLDivElement>) => {
+  const [x, y] = at;
+  const move = (e: PointerEvent<HTMLDivElement>) => {
     const r = stage.current?.getBoundingClientRect();
     if (!dragging.current || !r) return;
-    set((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+    onMove((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   };
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = e.shiftKey ? 0.05 : 0.01;
@@ -27,23 +25,114 @@ function MaskHandle({ kind, mask, stage }: { kind: 'start' | 'end'; mask: Mask; 
     const dy = e.key === 'ArrowDown' ? step : e.key === 'ArrowUp' ? -step : 0;
     if (!dx && !dy) return;
     e.preventDefault();
-    set(x + dx, y + dy);
+    onMove(x + dx, y + dy);
   };
   const end = () => { if (dragging.current) { dragging.current = false; store.commit(); } };
   const pct = (v: number) => Math.round(v * 100);
   return (
-    <div role="slider" tabIndex={0} id={kind === 'start' ? 'mh-start' : 'mh-end'}
-      aria-label={kind === 'start' ? 'Where the mask is strongest. Drag, or use the arrow keys.' : 'Where the mask fades out completely. Drag, or use the arrow keys.'}
+    <div role="slider" tabIndex={0} id={id} aria-label={label}
       aria-valuetext={`${pct(x)}% across, ${pct(y)}% down`} aria-valuenow={pct(x)}
       // Keep the dots just inside the photo so one sitting on an edge can still be grabbed (the stage clips what sticks out).
       style={{ left: `clamp(20px, ${x * 100}%, calc(100% - 20px))`, top: `clamp(20px, ${y * 100}%, calc(100% - 20px))` }}
       className="pointer-events-auto absolute -mt-[22px] -ml-[22px] grid size-11 cursor-grab touch-none place-items-center rounded-full active:cursor-grabbing"
       onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); dragging.current = true; e.preventDefault(); }}
-      onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}
+      onPointerMove={move} onPointerUp={end} onPointerCancel={end}
       onKeyDown={onKey} onKeyUp={(e) => { if (e.key.startsWith('Arrow')) store.commit(); }}>
-      <span className={kind === 'start'
+      <span className={filled
         ? 'size-[22px] rounded-full border-2 border-bg bg-sage shadow-[0_0_0_2px_var(--color-sage-ink)]'
         : 'size-[22px] rounded-full border-2 border-ink bg-bg/35 shadow-[0_0_0_1px_rgba(0,0,0,.6)]'} />
+    </div>
+  );
+}
+
+/** The dots for a gradient (start and end) or an oval (centre, right edge, bottom edge). */
+function MaskHandles({ mask, stage }: { mask: Mask; stage: RefObject<HTMLDivElement | null> }) {
+  const { store } = useEditor();
+  const edit = (fn: (m: Mask) => void) => store.edit((d) => { const m = d.masks.find((q) => q.id === mask.id); if (m) fn(m); });
+  if (mask.kind === 'radial') {
+    // Everything here is worked out in screen pixels so a tilted oval's dots sit on its real axes.
+    const size = () => { const r = stage.current?.getBoundingClientRect(); return { W: r?.width || 1, H: r?.height || 1 }; };
+    const { W, H } = size();
+    const ca = Math.cos(mask.angle), sa = Math.sin(mask.angle);
+    const cx = mask.x1 * W, cy = mask.y1 * H;
+    const rxPx = mask.rx * W, ryPx = mask.ry * H;
+    const frac = (px: number, py: number): [number, number] => [px / W, py / H];
+    const toLocal = (x: number, y: number) => { const { W: w, H: h } = size(); const dx = x * w - mask.x1 * w, dy = y * h - mask.y1 * h; return { u: dx * ca + dy * sa, v: -dx * sa + dy * ca, w, h }; };
+    return (
+      <>
+        <Dot id="mh-rotate" label="Rotate the oval. Drag around the centre, or use the arrow keys." stage={stage} filled={false}
+          at={frac(cx + sa * (ryPx + 34), cy - ca * (ryPx + 34))}
+          onMove={(x, y) => edit((m) => {
+            const { w, h } = toLocal(x, y);
+            let a = Math.atan2(y * h - m.y1 * h, x * w - m.x1 * w) + Math.PI / 2;
+            a = ((a + Math.PI / 2) % Math.PI + Math.PI) % Math.PI - Math.PI / 2;   // an oval looks the same turned half a circle
+            m.angle = a;
+          })} />
+        <Dot id="mh-rx" label="Oval width. Drag, or use the arrow keys." stage={stage} filled={false}
+          at={frac(cx + ca * rxPx, cy + sa * rxPx)}
+          onMove={(x, y) => edit((m) => { const { u, w } = toLocal(x, y); m.rx = Math.min(1, Math.max(0.02, u / w)); })} />
+        <Dot id="mh-ry" label="Oval height. Drag, or use the arrow keys." stage={stage} filled={false}
+          at={frac(cx - sa * ryPx, cy + ca * ryPx)}
+          onMove={(x, y) => edit((m) => { const { v, h } = toLocal(x, y); m.ry = Math.min(1, Math.max(0.02, v / h)); })} />
+        <Dot id="mh-centre" label="Oval centre. Drag, or use the arrow keys." stage={stage} filled
+          at={[mask.x1, mask.y1]} onMove={(x, y) => edit((m) => { m.x1 = clamp01(x); m.y1 = clamp01(y); })} />
+      </>
+    );
+  }
+  return (
+    <>
+      <Dot id="mh-end" label="Where the mask fades out completely. Drag, or use the arrow keys." stage={stage} filled={false}
+        at={[mask.x2, mask.y2]} onMove={(x, y) => edit((m) => { m.x2 = clamp01(x); m.y2 = clamp01(y); })} />
+      <Dot id="mh-start" label="Where the mask is strongest. Drag, or use the arrow keys." stage={stage} filled
+        at={[mask.x1, mask.y1]} onMove={(x, y) => edit((m) => { m.x1 = clamp01(x); m.y1 = clamp01(y); })} />
+    </>
+  );
+}
+
+/** Covers the photo while a brush mask is selected. Dragging paints a stroke; the stroke is one undo step. */
+function BrushLayer({ mask, stage }: { mask: Mask; stage: RefObject<HTMLDivElement | null> }) {
+  const { store } = useEditor();
+  const brush = useEditorState((s) => s.brush);
+  const painting = useRef(false);
+  const [hover, setHover] = useState<[number, number] | null>(null);
+  const at = (e: PointerEvent<HTMLDivElement>): [number, number] | null => {
+    const r = stage.current?.getBoundingClientRect();
+    return r ? [clamp01((e.clientX - r.left) / r.width), clamp01((e.clientY - r.top) / r.height)] : null;
+  };
+  const edit = (fn: (m: Mask) => void) => store.edit((d) => { const m = d.masks.find((q) => q.id === mask.id); if (m) fn(m); });
+  const used = (m: Mask) => m.strokes.reduce((n, t) => n + t.pts.length / 2, 0);
+  const down = (e: PointerEvent<HTMLDivElement>) => {
+    const p = at(e);
+    if (!p || used(mask) >= MAX_BRUSH_POINTS) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    painting.current = true;
+    edit((m) => { m.strokes.push({ pts: [p[0], p[1]], size: brush.size, soft: brush.soft, erase: brush.erase }); });
+  };
+  const move = (e: PointerEvent<HTMLDivElement>) => {
+    const p = at(e);
+    setHover(p);
+    if (!painting.current || !p) return;
+    edit((m) => {
+      const t = m.strokes[m.strokes.length - 1];
+      if (!t || used(m) >= MAX_BRUSH_POINTS) return;
+      const r = stage.current?.getBoundingClientRect();
+      const aspect = r ? r.height / r.width : 1;
+      const lx = t.pts[t.pts.length - 2], ly = t.pts[t.pts.length - 1];
+      // Add a point only after the brush has moved a little, so a slow drag does not pile up points.
+      if (Math.hypot(p[0] - lx, (p[1] - ly) * aspect) > t.size * 0.15) t.pts.push(p[0], p[1]);
+    });
+  };
+  const up = () => { if (painting.current) { painting.current = false; store.commit(); } };
+  const full = used(mask) >= MAX_BRUSH_POINTS;
+  return (
+    <div id="brush-ui" role="application" aria-label="Paint on the photo. Drag to paint the mask."
+      className={`absolute inset-0 z-[3] touch-none ${full ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={() => setHover(null)}>
+      {hover && (
+        <span aria-hidden="true"
+          className={`pointer-events-none absolute -translate-1/2 rounded-full border ${brush.erase ? 'border-warn' : 'border-ink'} shadow-[0_0_0_1px_rgba(0,0,0,.6)]`}
+          style={{ left: `${hover[0] * 100}%`, top: `${hover[1] * 100}%`, width: `${brush.size * 200}%`, aspectRatio: '1' }} />
+      )}
     </div>
   );
 }
@@ -80,12 +169,12 @@ export function Stage() {
       className="relative mx-auto touch-pan-y overflow-hidden rounded-[10px] bg-[#0b0b0a] select-none [--maxh:36vh] min-[900px]:[--maxh:74vh]">
       <canvas id="view" ref={view} aria-label="Photo preview. Drag the handle to compare before and after." className="block h-auto w-full" />
       <canvas id="mask-tint" ref={tint} hidden aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" />
-      {mask && mask.kind === 'linear' && (
+      {mask && (mask.kind === 'linear' || mask.kind === 'radial') && (
         <div id="mask-ui" className="pointer-events-none absolute inset-0 z-[3]">
-          <MaskHandle kind="end" mask={mask} stage={stage} />
-          <MaskHandle kind="start" mask={mask} stage={stage} />
+          <MaskHandles mask={mask} stage={stage} />
         </div>
       )}
+      {mask && mask.kind === 'brush' && <BrushLayer mask={mask} stage={stage} />}
       <div id="handle" role="slider" tabIndex={0} hidden={hold} aria-label="Compare before and after"
         aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(shown * 100)}
         style={{ left: `${shown * 100}%` }}

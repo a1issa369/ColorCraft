@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/* The palette: graphite, bone and sage. No purple, no gradients. */
+@theme {
+  --color-bg: #121211;
+  --color-surface: #1a1a18;
+  --color-raised: #22221f;
+  --color-line: #33322e;
+  --color-ink: #ebe6da;
+  --color-muted: #a39e92;
+  --color-sage: #7fb8a8;
+  --color-sage-ink: #0f1a17;
+  --color-warn: #d79a62;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@layer base {
+  html { color-scheme: dark; }
+  body {
+    margin: 0; background: var(--color-bg); color: var(--color-ink); font: 16px/1.5 var(--font-sans);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    -webkit-text-size-adjust: 100%;
+  }
+  h1, h2, h3 { margin: 0; letter-spacing: 0.01em; }
+  :focus-visible { outline: 2px solid var(--color-sage); outline-offset: 2px; }
+  #curve-channels, [aria-label="Curve channel"] { scroll-margin-top: calc(var(--sticky-h, 0px) + 8px); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+}
+
+/* Range sliders: the browser parts of a slider cannot be styled with utility classes. */
+.range { -webkit-appearance: none; appearance: none; width: 100%; height: 36px; background: transparent; margin: 2px 0 0; touch-action: pan-y; }
+.range::-webkit-slider-runnable-track { height: 4px; background: var(--color-line); border-radius: 2px; }
+.range::-moz-range-track { height: 4px; background: var(--color-line); border-radius: 2px; }
+.range::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; border-radius: 50%; background: var(--color-ink); border: 2px solid var(--color-bg); margin-top: -10px; }
+.range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--color-ink); border: 2px solid var(--color-bg); }
+
+/* The home page before and after wipe. The photo starts as the original (Before is on the left), then a divider travels from the right
+   edge to the left and the edit appears behind it on the right side (After), holds, and fades back to the original. */
+@keyframes reveal {
+  0%, 14% { clip-path: inset(0 0 0 100%); opacity: 1; }
+  52%, 90% { clip-path: inset(0 0 0 0); opacity: 1; }
+  98% { clip-path: inset(0 0 0 0); opacity: 0; }
+  100% { clip-path: inset(0 0 0 100%); opacity: 0; }
+}
+@keyframes wipe {
+  0%, 14% { left: calc(100% - 2px); opacity: 1; }
+  52% { left: 0; opacity: 1; }
+  53%, 100% { left: 0; opacity: 0; }
+}

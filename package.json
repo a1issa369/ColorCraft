@@ -1,14 +1,33 @@
 {
   "name": "colorcraft",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A color grading helper for beginner photographers: it tells you what is wrong with a photo in plain English, then shows you the fix.",
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node --test \"tests/*.test.js\"",
-    "mutation": "python3 scripts/mutation_check.py",
-    "serve": "node scripts/serve.js 8080"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
+    "test": "node --test \"tests/*.test.ts\"",
+    "mutation": "python3 scripts/mutation_check.py"
   },
-  "engines": { "node": ">=22" },
-  "license": "MIT"
+  "engines": {
+    "node": ">=22.18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  }
 }

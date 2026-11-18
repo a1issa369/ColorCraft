@@ -1,61 +1,72 @@
 #!/usr/bin/env python3
 """Mutation check: break the colour maths on purpose and confirm the tests notice.
 
-Each mutation edits one line of src/core, runs the suite, and expects a failure. A mutation that survives means
+Each mutation edits one line of src/core or src/state, runs the suite, and expects a failure. A mutation that survives means
 a behaviour nothing tests. Run: python3 scripts/mutation_check.py
 """
 import pathlib, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MUTATIONS = [
-    ("adjust.js", "const ex = Math.pow(2, a.exposure);", "const ex = Math.pow(3, a.exposure);", "exposure is not one stop per step"),
-    ("adjust.js", "const p = Math.pow(2, (contrast / 100) * 1.1);", "const p = Math.pow(2, -(contrast / 100) * 1.1);", "contrast direction flipped"),
-    ("adjust.js", "x < 0.5 ? 0.5 * Math.pow(2 * x, p)", "x < 0.4 ? 0.5 * Math.pow(2 * x, p)", "contrast pivot moved off mid grey"),
-    ("adjust.js", "let rg = 1 + 0.5 * tt;", "let rg = 1 - 0.5 * tt;", "warm temperature makes red weaker"),
-    ("adjust.js", "let gg = 1 - 0.35 * tn;", "let gg = 1 + 0.35 * tn;", "tint direction flipped"),
-    ("adjust.js", "(a.shadows / 100) * 1.6 * ws", "(a.shadows / 100) * 1.6 * wh", "shadows slider moves the highlights"),
-    ("adjust.js", "(a.highlights / 100) * 1.0 * wh", "(a.highlights / 100) * 1.0 * ws", "highlights slider moves the shadows"),
-    ("adjust.js", "out[k] = base[k] + (look[k] || 0) * s;", "out[k] = base[k] + (look[k] || 0);", "look strength ignored"),
-    ("analyze.js", "if (bin <= 3) clipLo++;", "if (bin <= 30) clipLo++;", "shadow clipping threshold too loose"),
-    ("analyze.js", "if (r >= 253 || g >= 253 || b >= 253) clipHi++;", "if (r >= 253 && g >= 253 && b >= 253) clipHi++;", "clipping needs all channels"),
-    ("analyze.js", "const meanA = reliable ? castA / castW : 0;", "const meanA = reliable ? -castA / castW : 0;", "cast sign flipped"),
-    ("analyze.js", "const CAST_SIGMA = 60;", "const CAST_SIGMA = 1e9;", "cast ignores strongly coloured pixels no more"),
-    ("suggest.js", "const round = (v, step) => Number((Math.round(v / step) * step).toFixed(2));", "const round = (v, step) => v;", "fix values not rounded"),
-    ("suggest.js", "temperature: ((da * tintB - tintA * db) / det) * 100,", "temperature: ((da * tintB + tintA * db) / det) * 100,", "white balance solver ignores tint cross-talk"),
-    ("suggest.js", "if (f.fix) Object.assign(out, f.fix);", "if (false) Object.assign(out, f.fix);", "mergeFixes does nothing"),
-    ("transfer.js", "refStats.mean[0] - lab[0]", "refStats.mean[1] - lab[0]", "reference lightness taken from the wrong channel"),
-    ("transfer.js", "const MIN_RATIO = 0.6;", "const MIN_RATIO = 0.0001;", "spread ratio not clamped"),
-    ("palette.js", ".sort((x, y) => y.size - x.size)", ".sort((x, y) => x.size - y.size)", "palette not sorted by share"),
-    ("image.js", "const s = maxEdge / long;", "const s = (maxEdge / long) * 0.9;", "downscale misses its target size"),
-    ("color.js", "export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);", "export const clamp = (v, lo, hi) => (v < lo ? lo : v);", "clamp ignores the upper bound"),
-    ("curves.js", "if (s > 9) {", "if (s > 900) {", "spline can overshoot and double back"),
-    ("curves.js", "for (const s of active) { fns.push(makeSpline(s.rgb || IDENTITY)); fns.push(makeSpline(s[keys[c]] || IDENTITY)); }", "for (const s of active) { fns.push(makeSpline(s[keys[c]] || IDENTITY)); fns.push(makeSpline(s.rgb || IDENTITY)); }", "channel curve runs before the RGB curve"),
-    ("curves.js", "return points.map(([x, y]) => [x, x + (y - x) * s]);", "return points.map(([x, y]) => [x, y * s]);", "look curve strength blends toward black, not a straight line"),
-    ("hsl.js", "h = (h + dHue[k] + 360) % 360;", "h = (h - dHue[k] + 360) % 360;", "hue slider direction flipped"),
-    ("hsl.js", "s = clamp(s * dSat[k], 0, 1);", "s = clamp(s * (2 - dSat[k]), 0, 1);", "colour mix saturation direction flipped"),
-    ("hsl.js", "t = t * t * (3 - 2 * t);", "t = t >= 0.5 ? 1 : 0;", "colour families switch abruptly at their edges"),
-    ("hsl.js", "v = clamp(v * (1 + dLum[k] * (s * 2 < 1 ? s * 2 : 1)), 0, 1);", "v = clamp(v * (1 - dLum[k] * (s * 2 < 1 ? s * 2 : 1)), 0, 1);", "colour mix brightness direction flipped"),
-    ("transfer.js", "if (tN > 0) L = L0 + tN * (toneL[idx] - L0);", "if (tN > 0) L = L0 - tN * (toneL[idx] - L0);", "tone match moves away from the reference"),
-    ("transfer.js", "+ rA[idx] - a, -MAX_SHIFT, MAX_SHIFT);", "+ sA[idx] - a, -MAX_SHIFT, MAX_SHIFT);", "colour match ignores the reference colour"),
-    ("transfer.js", "const ys = isotonic(measured.map((m) => m[1]));", "const ys = measured.map((m) => m[1]);", "fitted curves can run backwards"),
-    ("adjust.js", "curvesAreIdentity(adj.lookCurves) && hslIsNeutral(adj.hsl)", "curvesAreIdentity(adj.lookCurves)", "a colour mix does not count as an edit"),
-    ("history.js", "this.stack.length = this.index + 1;", "", "editing after undo keeps stale redo steps"),
-    ("history.js", "if (top && top.signature === signature) return false;", "", "repeated identical states add undo steps"),
-    ("history.js", "if (this.stack.length > this.limit) this.stack.shift();", "", "history grows without a limit"),
-    ("history.js", "this.index--;\n    return this.stack[this.index].snap;", "this.index -= 2;\n    return this.stack[this.index].snap;", "undo skips a step"),
-    ("hsl.js", "const k = Math.min(HUE_STEPS - 1, (h * (HUE_STEPS / 360)) | 0);", "const k = 0;", "colour mix ignores the pixel's hue"),
-    ("transfer.js", "const idx = (L0 * (STEPS / 100) + 0.5) | 0;", "const idx = 500;", "match ignores each pixel's lightness"),
-    ("mask.js", "const a = 1 - smoothstep01(t);", "const a = smoothstep01(t);", "gradient fades the wrong way"),
-    ("mask.js", "const ry = (y + 0.5 - py) * dy;", "const ry = 0;", "gradient ignores the vertical direction"),
-    ("mask.js", "const px = m.x1 * w, py = m.y1 * h;", "const px = m.x1 * w, py = m.y1 * w;", "gradient mixes up width and height"),
-    ("mask.js", "out[y * w + x] = inv ? 1 - a : a;", "out[y * w + x] = a;", "invert does nothing"),
-    ("mask.js", "if (len2 < 1) { out.fill(inv); return out; }", "", "coinciding handles crash or give NaN"),
-    ("mask.js", "d[i] += (e[i] - d[i]) * a;", "d[i] += (e[i] - d[i]);", "mask strength ignored for red"),
-    ("mask.js", "const key = `${m.id}|${m.x1}|${m.y1}|${m.x2}|${m.y2}|${m.invert}|${w}x${h}`;", "const key = `${m.id}|${m.x1}|${m.y1}|${m.invert}|${w}x${h}`;", "alpha cache ignores the end handle"),
+    ("adjust.ts", "const ex = Math.pow(2, a.exposure);", "const ex = Math.pow(3, a.exposure);", "exposure is not one stop per step"),
+    ("adjust.ts", "const p = Math.pow(2, (contrast / 100) * 1.1);", "const p = Math.pow(2, -(contrast / 100) * 1.1);", "contrast direction flipped"),
+    ("adjust.ts", "x < 0.5 ? 0.5 * Math.pow(2 * x, p)", "x < 0.4 ? 0.5 * Math.pow(2 * x, p)", "contrast pivot moved off mid grey"),
+    ("adjust.ts", "let rg = 1 + 0.5 * tt;", "let rg = 1 - 0.5 * tt;", "warm temperature makes red weaker"),
+    ("adjust.ts", "let gg = 1 - 0.35 * tn;", "let gg = 1 + 0.35 * tn;", "tint direction flipped"),
+    ("adjust.ts", "(a.shadows / 100) * 1.6 * ws", "(a.shadows / 100) * 1.6 * wh", "shadows slider moves the highlights"),
+    ("adjust.ts", "(a.highlights / 100) * 1.0 * wh", "(a.highlights / 100) * 1.0 * ws", "highlights slider moves the shadows"),
+    ("adjust.ts", "out[k] = (base[k] || 0) + (look[k] || 0) * s;", "out[k] = (base[k] || 0) + (look[k] || 0);", "look strength ignored"),
+    ("analyze.ts", "if (bin <= 3) clipLo++;", "if (bin <= 30) clipLo++;", "shadow clipping threshold too loose"),
+    ("analyze.ts", "if (r >= 253 || g >= 253 || b >= 253) clipHi++;", "if (r >= 253 && g >= 253 && b >= 253) clipHi++;", "clipping needs all channels"),
+    ("analyze.ts", "const meanA = reliable ? castA / castW : 0;", "const meanA = reliable ? -castA / castW : 0;", "cast sign flipped"),
+    ("analyze.ts", "const CAST_SIGMA = 60;", "const CAST_SIGMA = 1e9;", "cast ignores strongly coloured pixels no more"),
+    ("suggest.ts", "const round = (v: number, step: number): number => Number((Math.round(v / step) * step).toFixed(2));", "const round = (v: number, step: number): number => v;", "fix values not rounded"),
+    ("suggest.ts", "temperature: ((da * tintB - tintA * db) / det) * 100,", "temperature: ((da * tintB + tintA * db) / det) * 100,", "white balance solver ignores tint cross-talk"),
+    ("suggest.ts", "if (f.fix) Object.assign(out, f.fix);", "if (false) Object.assign(out, f.fix);", "mergeFixes does nothing"),
+    ("transfer.ts", "refStats.mean[0] - lab[0]", "refStats.mean[1] - lab[0]", "reference lightness taken from the wrong channel"),
+    ("transfer.ts", "const MIN_RATIO = 0.6;", "const MIN_RATIO = 0.0001;", "spread ratio not clamped"),
+    ("palette.ts", ".sort((x, y) => y.size - x.size)", ".sort((x, y) => x.size - y.size)", "palette not sorted by share"),
+    ("image.ts", "const s = maxEdge / long;", "const s = (maxEdge / long) * 0.9;", "downscale misses its target size"),
+    ("color.ts", "export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);", "export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v);", "clamp ignores the upper bound"),
+    ("curves.ts", "if (s > 9) {", "if (s > 900) {", "spline can overshoot and double back"),
+    ("curves.ts", "for (const s of active) { fns.push(makeSpline(s.rgb || IDENTITY)); fns.push(makeSpline(s[keys[c]] || IDENTITY)); }", "for (const s of active) { fns.push(makeSpline(s[keys[c]] || IDENTITY)); fns.push(makeSpline(s.rgb || IDENTITY)); }", "channel curve runs before the RGB curve"),
+    ("curves.ts", "return points.map(([x, y]): CurvePoint => [x, x + (y - x) * s]);", "return points.map(([x, y]): CurvePoint => [x, y * s]);", "look curve strength blends toward black, not a straight line"),
+    ("hsl.ts", "h = (h + dHue[k] + 360) % 360;", "h = (h - dHue[k] + 360) % 360;", "hue slider direction flipped"),
+    ("hsl.ts", "s = clamp(s * dSat[k], 0, 1);", "s = clamp(s * (2 - dSat[k]), 0, 1);", "colour mix saturation direction flipped"),
+    ("hsl.ts", "t = t * t * (3 - 2 * t);", "t = t >= 0.5 ? 1 : 0;", "colour families switch abruptly at their edges"),
+    ("hsl.ts", "v = clamp(v * (1 + dLum[k] * (s * 2 < 1 ? s * 2 : 1)), 0, 1);", "v = clamp(v * (1 - dLum[k] * (s * 2 < 1 ? s * 2 : 1)), 0, 1);", "colour mix brightness direction flipped"),
+    ("transfer.ts", "if (tN > 0) L = L0 + tN * (toneL[idx] - L0);", "if (tN > 0) L = L0 - tN * (toneL[idx] - L0);", "tone match moves away from the reference"),
+    ("transfer.ts", "+ rA[idx] - a, -MAX_SHIFT, MAX_SHIFT);", "+ sA[idx] - a, -MAX_SHIFT, MAX_SHIFT);", "colour match ignores the reference colour"),
+    ("transfer.ts", "const ys = isotonic(measured.map((m) => m[1]));", "const ys = measured.map((m) => m[1]);", "fitted curves can run backwards"),
+    ("adjust.ts", "curvesAreIdentity(adj.lookCurves) && hslIsNeutral(adj.hsl)", "curvesAreIdentity(adj.lookCurves)", "a colour mix does not count as an edit"),
+    ("history.ts", "this.stack.length = this.index + 1;", "", "editing after undo keeps stale redo steps"),
+    ("history.ts", "if (top && top.signature === signature) return false;", "", "repeated identical states add undo steps"),
+    ("history.ts", "if (this.stack.length > this.limit) this.stack.shift();", "", "history grows without a limit"),
+    ("history.ts", "this.index--;\n    return this.stack[this.index].snap;", "this.index -= 2;\n    return this.stack[this.index].snap;", "undo skips a step"),
+    ("hsl.ts", "const k = Math.min(HUE_STEPS - 1, (h * (HUE_STEPS / 360)) | 0);", "const k = 0;", "colour mix ignores the pixel's hue"),
+    ("transfer.ts", "const idx = (L0 * (STEPS / 100) + 0.5) | 0;", "const idx = 500;", "match ignores each pixel's lightness"),
+    ("mask.ts", "const a = 1 - smoothstep01(t);", "const a = smoothstep01(t);", "gradient fades the wrong way"),
+    ("mask.ts", "const ry = (y + 0.5 - py) * dy;", "const ry = 0;", "gradient ignores the vertical direction"),
+    ("mask.ts", "const px = m.x1 * w, py = m.y1 * h;", "const px = m.x1 * w, py = m.y1 * w;", "gradient mixes up width and height"),
+    ("mask.ts", "out[y * w + x] = inv ? 1 - a : a;", "out[y * w + x] = a;", "invert does nothing"),
+    ("mask.ts", "if (len2 < 1) { out.fill(inv); return out; }", "", "coinciding handles crash or give NaN"),
+    ("mask.ts", "d[i] += (e[i] - d[i]) * a;", "d[i] += (e[i] - d[i]);", "mask strength ignored for red"),
+    ("mask.ts", "const key = `${m.id}|${m.x1}|${m.y1}|${m.x2}|${m.y2}|${m.invert}|${w}x${h}`;", "const key = `${m.id}|${m.x1}|${m.y1}|${m.invert}|${w}x${h}`;", "alpha cache ignores the end handle"),
+    ("mask.ts", "out[p] = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;", "out[p] = (0.2126 * d[i + 2] + 0.7152 * d[i + 1] + 0.0722 * d[i]) / 255;", "brightness weights red and blue the wrong way round"),
+    ("mask.ts", "const rise = s > 0 ? smoothstep01((l - (lo - s)) / s) : (l >= lo ? 1 : 0);", "const rise = 1;", "brightness mask ignores its lower end"),
+    ("mask.ts", "const fall = s > 0 ? 1 - smoothstep01((l - hi) / s) : (l <= hi ? 1 : 0);", "const fall = 1;", "brightness mask ignores its upper end"),
+    ("mask.ts", "out[p] = inv ? 1 - a : a;\n  }\n  return out;\n}\n\n/** Remembers", "out[p] = a;\n  }\n  return out;\n}\n\n/** Remembers", "flip does nothing on a brightness mask"),
+    ("mask.ts", "if (m.kind !== 'linear') throw new Error('AlphaCache only holds gradient masks');", "", "gradient cache accepts brightness masks"),
+    ("state/store.ts", "const draft = cloneSettings(this.state.settings);", "const draft = this.state.settings;", "edit changes the old state in place"),
+    ("state/store.ts", "if (opts.commit) this.commit();", "if (opts.commit) { /* never commits */ }", "edit never records an undo step"),
+    ("state/store.ts", "if (this.state.settings.masks.length >= MAX_MASKS) return;", "", "mask count not capped"),
+    ("state/store.ts", "split: tab === 'masks' && this.state.split > 0 ? 0 : this.state.split", "split: this.state.split", "masks tab keeps the original on screen"),
+    ("state/grade.ts", "if (!masksAreNeutral(s.masks)) out = applyMasks(out, s.masks, cache, bufs?.c);", "", "masks not applied"),
+    ("state/grade.ts", "return look ? combine(s.adj, look.adj, s.lookStrength) : s.adj;", "return s.adj;", "look ignored"),
 ]
 
 def suite():
-    files = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "tests").glob("*.test.js"))
+    files = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "tests").glob("*.test.ts"))
     return subprocess.run(["node", "--test", *files], cwd=ROOT, capture_output=True, text=True).returncode
 
 def main():
@@ -63,7 +74,7 @@ def main():
         print("The suite must pass before mutating."); return 2
     survived = []
     for fname, old, new, why in MUTATIONS:
-        path = ROOT / "src" / "core" / fname
+        path = ROOT / "src" / (fname if "/" in fname else "core/" + fname)
         src = path.read_text()
         if src.count(old) != 1:
             print(f"SKIP   {fname}: pattern for '{why}' found {src.count(old)} times"); survived.append(why); continue

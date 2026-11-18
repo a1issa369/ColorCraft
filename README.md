@@ -1,34 +1,45 @@
 # ColorCraft
 
-A colour grading teacher for beginner photographers. Drop in a photo and it reads the exposure, contrast and colour, explains in plain words what it sees, and lets you fix each problem with one slider or one tap. Runs entirely in the browser: no uploads, no accounts, no dependencies, no build step.
+A colour grading teacher for beginner photographers. Drop in a photo and it reads the exposure, contrast and colour, explains in plain words what it sees, and lets you fix each problem with one slider or one tap. Runs entirely in the browser: no uploads, no accounts, no server. Built with React, TypeScript and Tailwind; the colour engine is plain, dependency-free TypeScript.
 
 
 ## Try it
 
-Open the live demo (GitHub Pages, once enabled) or run it locally:
+Open the live demo (GitHub Pages) or run it locally (Node 22.18+):
 
 ```
-node scripts/serve.js 8080     # then open http://localhost:8080
-npm test                       # 152 tests, Node 22+
-python3 scripts/mutation_check.py
+npm install
+npm run dev                    # then open the address it prints
+npm run typecheck              # strict TypeScript, app and tests
+npm test                       # 172 tests
+npm run mutation               # breaks the code on purpose; the tests must notice
+npm run build                  # production build into dist/
 ```
 
-No photo handy? Three real sample photos sit on the home page, each looping a before and after wipe. The "after" is made by the same engine as the editor, from the look and adjustments listed in `src/ui/featured.js`, and opening a card puts the original photo in the editor. To use your own, drop JPEGs into `assets/samples/` and edit that list.
+No photo handy? Three real sample photos sit on the home page, each looping a before and after wipe. The "after" is made by the same engine as the editor, from the look and adjustments listed in `src/core/featured.ts`, and opening a card puts the original photo in the editor. To use your own, drop JPEGs into `public/samples/` and edit that list.
+
+## Deploying
+
+The site deploys itself. `.github/workflows/pages.yml` runs on every push to `main` (and on demand from the Actions tab): it installs, type checks, runs the tests, builds into `dist/` and publishes that to GitHub Pages. A commit that fails the checks is never published.
+
+One-time setup: in the repository, open **Settings, Pages, Build and deployment** and set **Source** to **GitHub Actions**. After that, merging to `main` is the whole release process, and the address is shown on the workflow run.
+
+If the repository is not named `ColorCraft`, or the site is served from a custom domain, set `VITE_BASE` to the path it is served from (`/` for a root domain) in the build step of the workflow. Commit `package-lock.json` so the workflow installs exactly the versions you tested.
 
 ## What it does
 
 - **Read**: brightness histogram, a colour scope, and findings such as "Underexposed", "Highlights are clipping", "Leans warm". Each finding explains itself and has an *Apply this fix* button. *Fix everything for me* runs the auto grade.
 - **Adjust**: eight sliders (exposure, contrast, highlights, shadows, temperature, tint, saturation, fade), each with a one line explanation, plus a **colour mix** panel (hue, saturation and brightness for eight colour families). Double click a slider to reset it.
 - **Curves**: a Lightroom-style tone curve with RGB, Red, Green and Blue lines drawn over a live histogram. Drag to bend, tap to add a point, double tap to remove one. Works with touch, mouse and keyboard.
-- **Looks**: 18 starting points in five groups (Natural, Film, Cinematic, Moody, Mono) with a strength slider. A look is just slider values, a curve and a colour mix, so nothing is hidden.
+- **Looks**: 17 starting points in five groups (Natural, Film, Cinematic, Moody, Mono) with a strength slider. A look is just slider values, a curve and a colour mix, so nothing is hidden.
 - **Match**: pick a photo whose grade you like and ColorCraft learns its brightness and its colour toning, separately for darks, mids and lights. Separate colour and tone sliders. *Turn into editable curves* bakes the match into the Red, Green and Blue lines so you can fine tune it.
-- **Gradient masks**: limit an edit to part of the photo. A gradient is strongest at its start dot and fades to nothing at its end dot, so you can darken a sky without touching the ground. Drag the dots, flip the side, show the area as a red overlay, and give each mask its own exposure, contrast, highlights, shadows, temperature and saturation. Up to three, with one-tap starters (darken the sky, lift the ground, warm the horizon).
+- **Gradient and brightness masks**: limit an edit to part of the photo. A gradient is strongest at its start dot and fades to nothing at its end dot, so you can darken a sky without touching the ground. Drag the dots, flip the side, show the area as a red overlay, and give each mask its own exposure, contrast, highlights, shadows, temperature and saturation. Up to three, with one-tap starters (darken the sky, lift the ground, warm the horizon). A brightness mask picks pixels by how light or dark they are instead of where they sit: set From, To and Softness, and it follows the tones wherever they appear (tame the brights, open the darks, cool the shadows).
 - **Undo and redo**: buttons plus Ctrl or Cmd+Z, Shift+Ctrl or Cmd+Z and Ctrl+Y. A whole slider or curve drag is one step, and it covers sliders, curves, colour mix, looks, Fix everything and the reference match.
 - Before and after handle (drag or arrow keys), hold to see the original, save a full size JPEG (up to 4000 px), copy your settings as text.
 
 ## How it works
 
-All colour maths is in `src/core` with no browser dependencies, so it is testable in Node.
+All colour maths is in `src/core` with no browser dependencies, so it is testable in Node. The screen is React; the pixels are not (see *How the app is put together*).
 
 | Piece | Approach |
 | --- | --- |
@@ -49,9 +60,21 @@ All colour maths is in `src/core` with no browser dependencies, so it is testabl
 
 - **Gray world is a guess.** A photo of a blue sea really is blue. The cast finding is worded as "leans cool, if it does not feel right...", and the estimator down-weights strong colours instead of trusting them, but it can still be wrong on single colour scenes.
 - **The preview is a 1280 px copy.** Sliders stay smooth on a phone. Export re-grades the full image (capped at 4000 px) with the same code, so what you see is what you save.
-- **No raw support, no local masks, no curves.** This teaches global grading. It is not a Lightroom replacement.
+- **No raw support, and masks are gradients and brightness ranges only.** This teaches grading. It is not a Lightroom replacement.
 - **Colour is managed as sRGB only.** Wide gamut photos are treated as sRGB.
-- **Vanilla JavaScript, no framework.** I planned React and TypeScript, but the package registry was unreachable in my build environment, so I wrote it with zero dependencies. That turned out to suit it: the whole app is static files.
+- **React for the screen, not for the pixels.** Re-rendering a component tree on every slider tick would waste the time the photo needs, so the render loop lives outside React (see below).
+
+## How the app is put together
+
+```
+React components  ->  EditorStore  <-  Engine (canvases, render loop)
+   (what you see)     (settings,        (draws the photo whenever
+                       undo, tabs)       the store changes)
+```
+
+- **`EditorStore`** (`src/state/store.ts`) holds everything the screen is drawn from as plain data: the settings, undo history, selected tab and the latest histogram. Components read it with `useSyncExternalStore`. It has no DOM in it, so its undo and redo rules are tested in Node.
+- **`Engine`** (`src/engine/engine.ts`) owns the canvases and pixel buffers. It subscribes to the store directly, so a slider drag redraws the photo without waiting for React to render. Grading itself is a pure function (`src/state/grade.ts`).
+- **Components** (`src/components`) are Tailwind-styled and only describe the screen. Settings are never mutated in place: every edit makes a new settings object, which is what lets undo be a list of snapshots.
 
 ## Speed
 
@@ -71,7 +94,9 @@ Stacked boosts (exposure, saturation, a look's colour push) can ask for a colour
 
 A mask is a soft map from 0 to 1 over the photo, measured in real pixels so the angle is true on a wide photo. The photo is graded as usual, then each mask's own small edit is computed and blended in by that map: full strength where the map is 1, none where it is 0. Masks go last, on top of looks and the reference match, in the order you made them. The strength map is cached while you drag a slider and rebuilt only when a dot moves. With three masks on, a slider tick costs about 50 ms against about 33 ms with none (measured on a slow cloud machine).
 
-Gradients only for now. A paintbrush and a pick-by-brightness mask are the next steps, and there is no automatic sky or subject selection.
+A brightness mask has no position at all. Its map comes from each pixel's brightness (standard luma weights) in the photo as graded before any mask runs, so one mask's edit never shifts where the next one lands. Full strength sits between From and To and fades out over Softness on either side. Because the map depends on the picture, it is recomputed per render rather than cached.
+
+A paintbrush mask is the next step, and there is no automatic sky or subject selection.
 
 ## Tradeoffs for the curves and matching
 
@@ -96,16 +121,19 @@ Gradients only for now. A paintbrush and a pick-by-brightness mask are the next 
 
 ## Testing
 
-152 tests cover the colour maths (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 44 lines of the maths on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
+172 tests cover the colour maths, the store's undo rules and the grading pipeline (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 50 lines of the maths and the store on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
 
-The browser layer (`src/main.js`, `src/ui`) is checked by hand with Playwright screenshots at phone and desktop widths, not by automated tests.
+The React components and the render engine are checked by hand with Playwright at phone and desktop widths, not by automated tests.
 
 ## Layout
 
 ```
-src/core    colour maths, masks and undo history, no DOM
-src/ui      histogram, scope and curve editor drawing, slider copy
-src/main.js wiring: loading, rendering, tabs
-tests       node:test suites
-scripts     dev server, mutation check
+src/core        colour maths, masks and undo history, no DOM
+src/state       the editor store and the grading pipeline, no DOM
+src/engine      canvases and the render loop
+src/components  React + Tailwind screens
+src/ui          histogram, scope and curve editor drawing, slider copy
+public          the home page photos
+tests           node:test suites
+scripts         mutation check
 ```

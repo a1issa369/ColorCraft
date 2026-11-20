@@ -4,6 +4,8 @@ import type { Mask } from '../core/mask.ts';
 import type { Finding } from '../core/suggest.ts';
 import type { LookProfile } from '../core/transfer.ts';
 import type { Swatch } from '../core/palette.ts';
+import type { Closeness } from '../core/matchscore.ts';
+import type { AgentStep } from './agent.ts';
 
 /** A reference photo whose grade is being copied. */
 export interface RefMatch {
@@ -35,6 +37,15 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: 'masks', label: 'Masks' },
 ];
 
+/** The match agent's session: the reference it works toward, what it did, and how close the photo is right now. */
+export interface AgentState {
+  status: 'idle' | 'running' | 'done';
+  ref: RefMatch | null;
+  steps: AgentStep[];
+  before: number | null;       // closeness when the agent started
+  closeness: Closeness | null; // live, of the photo as it looks now
+}
+
 /** Everything the screen is drawn from. */
 export interface EditorState {
   photoId: number;            // changes whenever a new photo is opened
@@ -45,6 +56,7 @@ export interface EditorState {
   tab: TabId;
   maskArea: boolean;          // red overlay while editing a mask
   brush: { size: number; soft: number; erase: boolean };   // the paintbrush tool: radius as a fraction of the photo's width
+  agent: AgentState;
   findings: Finding[];
   stats: Analysis | null;     // of the graded preview
   canUndo: boolean;

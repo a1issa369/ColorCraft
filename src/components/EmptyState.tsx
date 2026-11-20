@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DragEvent } from 'react';
 import type { Featured } from '../core/featured.ts';
+import { track } from '../analytics/track.ts';
 import { useEditor, useEditorState } from '../state/hooks.tsx';
 import { FeatureCards } from './FeatureCards.tsx';
 
@@ -20,11 +21,12 @@ export function EmptyState() {
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault(); setOver(false);
     const f = e.dataTransfer.files[0];
-    if (f) void engine.openFile(f);
+    if (f) { track('photo_opened', { source: 'upload' }); void engine.openFile(f); }
   };
   const openSample = async (f: Featured) => {
     const blob = await (await fetch(`${import.meta.env.BASE_URL}${f.file}`)).blob();
     // Set the type ourselves: the decoder insists on an image type, and not every static host labels .jpg files.
+    track('photo_opened', { source: 'sample' });
     void engine.openFile(new File([blob], f.file.split('/').pop() ?? 'photo.jpg', { type: 'image/jpeg' }));
   };
 
@@ -37,7 +39,7 @@ export function EmptyState() {
         <p className="mx-auto mb-5 max-w-[34ch] text-muted">Drop one here, or pick one from your device. It never leaves your browser.</p>
         <label htmlFor="file" className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[10px] border border-sage bg-sage px-4 py-[11px] font-semibold text-sage-ink hover:brightness-110">Choose a photo</label>
         <input id="file" type="file" accept="image/*" className="sr-only"
-          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void engine.openFile(f); }} />
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { track('photo_opened', { source: 'upload' }); void engine.openFile(f); } }} />
         {error && <p id="err" role="alert" className="mt-3 text-[0.8rem] text-warn">{error}</p>}
       </div>
       <FeatureCards onPick={(f) => void openSample(f)} />

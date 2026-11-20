@@ -70,6 +70,12 @@ MUTATIONS = [
     ("state/store.ts", "split: tab === 'masks' && this.state.split > 0 ? 0 : this.state.split", "split: this.state.split", "masks tab keeps the original on screen"),
     ("state/grade.ts", "if (!masksAreNeutral(s.masks)) out = applyMasks(out, s.masks, cache, bufs?.c);", "", "masks not applied"),
     ("state/grade.ts", "return look ? combine(s.adj, look.adj, s.lookStrength) : s.adj;", "return s.adj;", "look ignored"),
+    ("core/matchscore.ts", "100 * Math.max(0, 1 - distance / SCALE[id])", "100 * Math.max(0, 1 - distance * SCALE[id])", "dial score scale applied backwards"),
+    ("core/matchscore.ts", "const SCALE: Record<DialId, number> = { brightness: 20,", "const SCALE: Record<DialId, number> = { brightness: 2000,", "brightness gap no longer lowers the score"),
+    ("state/agent.ts", "const kept = changes.length > 0 && after >= before - tolerance;", "const kept = changes.length > 0;", "agent keeps steps that make the match worse"),
+    ("state/agent.ts", "if (best < 0 || bestV < 20 || bestV < median * 2.5) return null;", "if (best < 0) return null;", "horizon found in flat photos"),
+    ("state/agent.ts", "if (end < start * 0.9) improved = true; else draft.masks.pop();", "improved = true;", "region masks kept even when they do not help"),
+    ("state/steer.ts", "const k = BIG.test(clause) ? 2 : SMALL.test(clause) ? 0.5 : 1;", "const k = 1;", "steering ignores much and slightly"),
 ]
 
 def suite():

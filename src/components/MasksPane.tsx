@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { track } from '../analytics/track.ts';
 import { BRUSH_STARTERS, MASK_KEYS, MASK_STARTERS, MAX_MASKS, OVAL_STARTERS, RANGE_STARTERS } from '../core/mask.ts';
 import type { MaskInput, MaskKey, MaskKind } from '../core/mask.ts';
 import { useEditor, useEditorState } from '../state/hooks.tsx';
@@ -59,7 +60,7 @@ export function MasksPane() {
       <Hint>{kindInfo.about}</Hint>
       <div className="my-3 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2" role="group" aria-label="Start from">
         {kindInfo.starters.map((st) => (
-          <button key={st.id} type="button" disabled={full} onClick={() => store.addMask(st.mask)}
+          <button key={st.id} type="button" disabled={full} onClick={() => { store.addMask(st.mask); track('mask_added', { kind }); }}
             className="min-h-11 cursor-pointer rounded-[10px] border border-line bg-surface px-3 py-2.5 text-left text-ink hover:enabled:border-muted disabled:cursor-not-allowed disabled:opacity-45">
             <b className="block font-semibold">{st.name}</b>
             <small className="mt-0.5 block text-[0.78rem] leading-snug text-muted">{st.blurb}</small>

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { track } from '../analytics/track.ts';
 import type { KeyboardEvent } from 'react';
 import { TABS } from '../state/types.ts';
 import type { TabId } from '../state/types.ts';
@@ -16,6 +17,7 @@ function Tabs() {
   const { store } = useEditor();
   const tab = useEditorState((s) => s.tab);
   const list = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { track('tab_viewed', { tab }); }, [tab]);
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = TABS.findIndex((t) => t.id === tab);
@@ -45,6 +47,7 @@ function CopySettings() {
     const text = describeSettings(store.getState().settings);
     let ok = false;
     try { await navigator.clipboard.writeText(text); ok = true; } catch { /* fall through and show the text instead */ }
+    track('copy_settings', { copied: ok });
     store.setNotice(ok ? 'Copied. Paste these into Lightroom or Snapseed to repeat the grade.' : text);
   };
   return (

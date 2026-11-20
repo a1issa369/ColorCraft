@@ -1,5 +1,8 @@
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { analytics, track } from './analytics/track.ts';
 import { Editor } from './components/Editor.tsx';
 import { EmptyState } from './components/EmptyState.tsx';
+import { StatsPage } from './components/StatsPage.tsx';
 import { Button, cx } from './components/ui.tsx';
 import { EditorContext, useEditor, useEditorState } from './state/hooks.tsx';
 import type { Editor as EditorHandle } from './state/hooks.tsx';
@@ -24,12 +27,32 @@ function Screen() {
   return <main id="app">{hasPhoto ? <Editor /> : <EmptyState />}</main>;
 }
 
+const onStatsRoute = () => window.location.hash === '#stats';
+const watchHash = (cb: () => void) => { window.addEventListener('hashchange', cb); return () => window.removeEventListener('hashchange', cb); };
+
+function Footer() {
+  const [on, setOn] = useState(analytics.enabled);
+  return (
+    <footer className="px-4 pt-[22px] pb-7 text-center text-[0.8rem] text-muted">
+      <p className="m-0">Your photos stay on your device. No uploads, no accounts.</p>
+      <p className="mx-auto mt-1.5 max-w-[46ch]">
+        {on ? 'We count anonymous actions, like which tab opened, never your photos. ' : 'Usage counting is off. '}
+        <button type="button" id="analytics-toggle" className="cursor-pointer border-0 bg-transparent p-0 text-muted underline"
+          onClick={() => { analytics.setEnabled(!on); setOn(!on); }}>{on ? 'Turn off' : 'Turn on'}</button>
+        {' · '}<a href="#stats" className="text-muted underline">See the numbers</a>
+      </p>
+    </footer>
+  );
+}
+
 export function App({ editor }: { editor: EditorHandle }) {
+  const stats = useSyncExternalStore(watchHash, onStatsRoute);
+  useEffect(() => { track('session_start'); }, []);
   return (
     <EditorContext.Provider value={editor}>
       <Header />
-      <Screen />
-      <footer className="px-4 pt-[22px] pb-7 text-center text-[0.8rem] text-muted">Everything runs on your device. No uploads, no accounts.</footer>
+      {stats ? <StatsPage /> : <Screen />}
+      <Footer />
     </EditorContext.Provider>
   );
 }

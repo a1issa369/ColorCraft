@@ -167,3 +167,67 @@ test('a brush stroke is one undo step, and the brush tool settings are not part 
   assert.equal(s.getState().brush.erase, true);
   assert.equal(s.getState().brush.soft, 0.5);
 });
+
+// ---- match agent ----
+import type { AgentStep } from '../src/state/agent.ts';
+import type { RefMatch } from '../src/state/types.ts';
+
+const fakeRef = { id: 7, color: 0.5, tone: 0.5, swatches: [], profile: {}, thumb: { width: 1, height: 1, data: new Uint8ClampedArray(4) } } as unknown as RefMatch;
+const stepWith = (id: string, exposure: number, before = 50, after = 60): AgentStep => {
+  const settings = cloneSettings(makeSettings()); settings.adj.exposure = exposure;
+  return { id, kind: 'brightness', title: id, why: '', changes: [], before, after, kept: true, settings };
+};
+
+test('choosing a reference clears an earlier run', () => {
+  const s = open();
+  s.setAgentRef(fakeRef);
+  s.agentBegin();
+  s.agentApplyStep(stepWith('a', 0.5), { first: true });
+  s.setAgentRef(fakeRef);
+  assert.equal(s.getState().agent.steps.length, 0);
+  assert.equal(s.getState().agent.status, 'idle');
+  assert.equal(s.getState().agent.ref, fakeRef);
+});
+
+test('each agent step is one undo step and records where the run began', () => {
+  const s = open();
+  s.setAgentRef(fakeRef);
+  s.agentBegin();
+  s.agentApplyStep(stepWith('a', 0.5, 40, 55), { first: true });
+  s.agentApplyStep(stepWith('b', 1, 55, 70));
+  s.agentEnd();
+  const a = s.getState().agent;
+  assert.equal(a.status, 'done');
+  assert.equal(a.steps.length, 2);
+  assert.equal(a.before, 40);
+  assert.equal(s.getState().settings.adj.exposure, 1);
+  s.undo();
+  assert.equal(s.getState().settings.adj.exposure, 0.5);
+  s.undo();
+  assert.equal(s.getState().settings.adj.exposure, 0);
+});
+
+test('going back to a step restores it as a new undo step', () => {
+  const s = open();
+  s.agentBegin();
+  s.agentApplyStep(stepWith('a', 0.5), { first: true });
+  s.agentApplyStep(stepWith('b', 1));
+  s.jumpToStep(0);
+  assert.equal(s.getState().settings.adj.exposure, 0.5);
+  assert.equal(s.getState().agent.steps.length, 2);
+  s.undo();
+  assert.equal(s.getState().settings.adj.exposure, 1);
+  s.jumpToStep(99);
+  assert.equal(s.getState().settings.adj.exposure, 1);
+});
+
+test('a new photo keeps the reference but drops the run', () => {
+  const s = open();
+  s.setAgentRef(fakeRef);
+  s.agentBegin();
+  s.agentApplyStep(stepWith('a', 0.5), { first: true });
+  s.openPhoto([finding]);
+  assert.equal(s.getState().agent.ref, fakeRef);
+  assert.equal(s.getState().agent.steps.length, 0);
+  assert.equal(s.getState().agent.status, 'idle');
+});

@@ -7,9 +7,13 @@ import { MAX_MASKS, cloneMasks, makeMask } from '../core/mask.ts';
 import type { MaskInput } from '../core/mask.ts';
 import type { Analysis } from '../core/analyze.ts';
 import type { Finding } from '../core/suggest.ts';
-import type { EditorState, RefMatch, Settings, TabId } from './types.ts';
+import type { Closeness } from '../core/matchscore.ts';
+import type { AgentStep } from './agent.ts';
+import type { AgentState, EditorState, RefMatch, Settings, TabId } from './types.ts';
 
 export const HISTORY_LIMIT = 100;
+
+const idleAgent = (ref: RefMatch | null = null): AgentState => ({ status: 'idle', ref, steps: [], before: null, closeness: null });
 
 export const makeSettings = (): Settings => ({
   adj: makeAdjustments(), look: null, lookStrength: 1, ref: null, masks: [], maskSel: null,
@@ -32,7 +36,7 @@ const signature = (s: Settings): string =>
 const initial = (): EditorState => ({
   photoId: 0, hasPhoto: false, settings: makeSettings(), split: 0.5, hold: false, tab: 'read', maskArea: true,
   brush: { size: 0.05, soft: 0.5, erase: false },
-  findings: [], stats: null, canUndo: false, canRedo: false, notice: '', error: '',
+  agent: idleAgent(), findings: [], stats: null, canUndo: false, canRedo: false, notice: '', error: '',
 });
 
 export class EditorStore {
@@ -57,7 +61,7 @@ export class EditorStore {
   openPhoto(findings: Finding[]): void {
     this.history.reset();
     const settings = makeSettings();
-    this.set({ photoId: this.state.photoId + 1, hasPhoto: true, settings, split: 0.5, hold: false, tab: 'read', findings, stats: null, error: '', notice: '' });
+    this.set({ photoId: this.state.photoId + 1, hasPhoto: true, settings, split: 0.5, hold: false, tab: 'read', findings, stats: null, error: '', notice: '', agent: idleAgent(this.state.agent.ref) });
     this.commit();
   }
   closePhoto(): void { this.set({ hasPhoto: false, stats: null }); }
@@ -96,6 +100,30 @@ export class EditorStore {
   // ---- reference photo ----
   nextRefId(): number { return ++this.refCounter; }
   setRef(ref: RefMatch | null): void { this.edit((d) => { d.ref = ref; }, { commit: true }); }
+
+  // ---- match agent ----
+  /** The photo whose look the agent works toward. Choosing a new one clears the old run. */
+  setAgentRef(ref: RefMatch | null): void { this.set({ agent: idleAgent(ref) }); }
+  agentBegin(): void { this.set({ agent: { ...this.state.agent, status: 'running', steps: [], before: null } }); }
+  /** Put the photo into the state a step left it in (one undo step) and add the step to the trace. */
+  agentApplyStep(step: AgentStep, opts: { first?: boolean } = {}): void {
+    this.restoreAs(step.settings);
+    const a = this.state.agent;
+    this.set({ agent: { ...a, steps: [...a.steps, step], before: opts.first ? step.before : a.before } });
+  }
+  agentEnd(): void { this.set({ agent: { ...this.state.agent, status: 'done' } }); }
+  /** Go back to how the photo looked after an earlier step. It becomes a new undo step, so nothing is lost. */
+  jumpToStep(index: number): void {
+    const step = this.state.agent.steps[index];
+    if (step) this.restoreAs(step.settings);
+  }
+  setCloseness(closeness: Closeness | null): void { this.set({ agent: { ...this.state.agent, closeness } }); }
+  private restoreAs(snap: Settings): void {
+    const next = cloneSettings(snap);
+    next.maskSel = next.masks.some((m) => m.id === this.state.settings.maskSel) ? this.state.settings.maskSel : (next.masks[0]?.id ?? null);
+    this.set({ settings: next });
+    this.commit();
+  }
 
   // ---- masks ----
   addMask(spec: MaskInput): void {

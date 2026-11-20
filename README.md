@@ -123,9 +123,35 @@ There is no automatic sky or subject selection.
 - **Sample photos hid bugs.** My first "too orange" sample read as cool because the scene was blue dominant. I rebalanced the scene and tested that each broken sample is diagnosed the way it was broken. The synthetic scenes still back the tests, but the home page now uses real photos, which is where an automatic fix turned out to strip the gold from a sunset: it treats a strong cast as a mistake, so those cards use a look instead. The old "Fix everything for me" button ran a separate multi-round auto grade whose result could differ from the suggestions listed under it, which was confusing, so it was replaced by a button that applies exactly the listed suggestions.
 - **Float noise in the UI.** A fix showed as `0.7000000000000001`. Fix values are now rounded to slider steps, and a test pins that.
 
+## The match agent
+
+Pick a reference photo on the Match tab and press "Match my photo to this reference". An agent edits your photo toward the reference one step at a time and shows each step with a reason, the control changes it made and a "Go back to here" button. Every step is an undo step, and the agent only uses controls you can edit yourself: sliders, split tints and ordinary gradient masks.
+
+It is an on-device closed-loop optimiser, not a language model. Nothing is uploaded and no API key is involved. How it works:
+
+- **Closeness.** Six dials (brightness, contrast, warmth, colour strength, shadow tint, highlight tint) are read from a profile of each photo. Each scores 0 to 100 by distance over a fixed scale, and the overall score is their mean (`src/core/matchscore.ts`).
+- **Steps** (`src/state/agent.ts`): read both photos, brightness, tone shape, warmth, colour strength, split toning, sky and ground masks (only if both photos have a clear horizon), up to two refine passes, then a check. Each control is solved by coordinate descent on a 160 px copy. A step is kept only if the overall score does not drop, and if nothing beat the starting point the photo goes back to it.
+- **Fine tuning.** Each dial has a meter and a slider bound to the real control. "Steer it in plain English" (`src/state/steer.ts`) understands a fixed list of phrases such as warmer, moodier or lift the shadows, with "much" and "slightly", and says what it understood and what it did not.
+
+## Usage counting
+
+`src/analytics/track.ts` records anonymous actions (tab opened, reference chosen, agent run with before and after scores, export). It never sees photos. Events go in a local ring buffer on the device, there is an opt-out in the footer that also clears them, and `#stats` shows the numbers.
+
+To collect everyone's events, deploy `analytics-worker/` (a Cloudflare Worker with a D1 database, free tier) and build the site with `VITE_ANALYTICS_URL` set to its address:
+
+```
+cd analytics-worker
+npx wrangler login
+npx wrangler d1 create colorcraft-analytics     # paste the database_id into wrangler.toml
+npx wrangler d1 execute colorcraft-analytics --remote --file=schema.sql
+npx wrangler deploy
+```
+
+Then add the worker address as a repository variable named `VITE_ANALYTICS_URL` (or put it in `.env.production`) and redeploy the site. The worker validates and caps every event, only answers browsers from the origins in `ALLOWED_ORIGINS`, and `GET /summary` returns the aggregates used by `#stats`.
+
 ## Testing
 
-172 tests cover the colour maths, the store's undo rules and the grading pipeline (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks 50 lines of the maths and the store on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
+About 250 tests cover the colour maths, the store's undo rules and the grading pipeline (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks about 70 lines of the maths and the store on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
 
 The React components and the render engine are checked by hand with Playwright at phone and desktop widths, not by automated tests.
 

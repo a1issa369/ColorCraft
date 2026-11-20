@@ -6,7 +6,14 @@ import { cloneCurves, composePoints } from '../core/curves.ts';
 import { downscale } from '../core/image.ts';
 import { AlphaCache, MAX_MASKS, lumaMap, rangeAlpha } from '../core/mask.ts';
 import { dominantColors } from '../core/palette.ts';
+import { closeness } from '../core/matchscore.ts';
+import type { Closeness } from '../core/matchscore.ts';
 import { diagnose } from '../core/suggest.ts';
+import { track } from '../analytics/track.ts';
+import { matchAgent } from '../state/agent.ts';
+import type { AgentStep } from '../state/agent.ts';
+import { steer } from '../state/steer.ts';
+import type { Settings } from '../state/types.ts';
 import type { Finding } from '../core/suggest.ts';
 import { fitCurves, lookProfile, matchLook } from '../core/transfer.ts';
 import type { Curves, Img } from '../core/types.ts';
@@ -112,6 +119,61 @@ export class Engine {
   }
 
   // ---- things the panels ask for ----
+  private evalImg: Img | null = null;
+  /** How close a set of settings gets the photo to the agent's reference, measured on a small copy. Null with no reference. */
+  measure(settings: Settings): Closeness | null {
+    const ref = this.store.getState().agent.ref;
+    if (!this.work || !ref) return null;
+    this.evalImg ??= downscale(this.work, 160);
+    return closeness(lookProfile(gradeImage(this.evalImg, settings, this.overlayCache)), ref.profile);
+  }
+
+  private runToken = 0;
+  /** Run the match agent, showing each step as it finishes. Every step is an undo step. */
+  async runAgent(): Promise<void> {
+    const st = this.store.getState();
+    const ref = st.agent.ref;
+    if (!this.work || !ref || st.agent.status === 'running') return;
+    const token = ++this.runToken, photo = st.photoId, t0 = performance.now();
+    const hadLive = !!st.settings.ref;
+    this.store.agentBegin();
+    const gen = matchAgent(this.work, st.settings, { profile: ref.profile, thumb: ref.thumb });
+    let first = true, steps: AgentStep[] = [];
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 90));      // let the page paint the last step before the next search starts
+      if (token !== this.runToken || this.store.getState().photoId !== photo) return;
+      const r = gen.next();
+      if (r.done) { steps = r.value.steps; break; }
+      this.store.agentApplyStep(r.value, { first });
+      first = false;
+    }
+    this.store.agentEnd();
+    const last = steps[steps.length - 1];
+    track('agent_run', {
+      ms: Math.round(performance.now() - t0), before: Math.round(steps[0]?.before ?? 0), after: Math.round(last?.after ?? 0),
+      steps_kept: steps.filter((x) => x.kept).length, steps_total: steps.length,
+      regions: steps.some((x) => x.kind === 'region' && x.kept), had_live_match: hadLive,
+    });
+  }
+
+  /** Apply a plain-English request. Returns what it understood so the panel can say so. */
+  steer(text: string): { understood: string[]; leftover: string; moved: boolean } {
+    const st = this.store.getState();
+    const r = steer(st.settings, text);
+    if (!r.changes.length) return { understood: r.understood, leftover: r.leftover, moved: false };
+    const before = this.measure(st.settings)?.overall ?? st.agent.closeness?.overall ?? 0;
+    const after = this.measure(r.settings)?.overall ?? before;
+    const delta = Math.round(after - before);
+    const step: AgentStep = {
+      id: `steer${st.agent.steps.length}`, kind: 'steer', title: `You asked: "${text.trim().slice(0, 60)}"`,
+      why: `I understood ${r.understood.join(', ')}. Closeness to the reference went ${delta === 0 ? 'nowhere' : `${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)} points`}${delta < 0 ? ', which is expected: you chose to go past the reference.' : '.'}`,
+      changes: r.changes, before, after, kept: true, settings: r.settings,
+    };
+    this.store.agentApplyStep(step);
+    track('steer_used', { phrases: r.understood.map((u) => u.replace(/ \(.*\)$/, '')).join(', ').slice(0, 40), delta });
+    return { understood: r.understood, leftover: r.leftover, moved: true };
+  }
+
   /** Read a reference photo and learn its grade. */
   async makeReference(file: File): Promise<RefMatch> {
     const bmp = await decodeFile(file);
@@ -181,6 +243,8 @@ export class Engine {
       paint(draft ? this.gradSmall : this.grad, g);
       this.shownDraft = draft;
       this.store.setStats(analyze(downscale(g, draft ? 160 : 256)));
+      // Measured the same way the agent measures, so the score on screen matches the steps in the trace.
+      if (this.store.getState().agent.ref) this.store.setCloseness(this.measure(this.store.getState().settings));
     }
     this.compose();
   }

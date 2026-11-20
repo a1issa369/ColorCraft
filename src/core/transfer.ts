@@ -134,7 +134,7 @@ function bandPos(L: number): { i0: number; i1: number; t: number } {
 }
 
 /** Lightness of the reference at a given rank (0..1), with linear interpolation between bins. */
-function quantile(cdf: Float64Array, q: number): number {
+export function quantile(cdf: Float64Array, q: number): number {
   let lo = 0, hi = L_BINS - 1;
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cdf[mid] < q) lo = mid; else hi = mid; }
   if (q <= cdf[lo]) return lo;

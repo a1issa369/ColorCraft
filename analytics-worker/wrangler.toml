@@ -1,0 +1,13 @@
+name = "colorcraft-analytics"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Pages that may read /summary and send events from a browser.
+[vars]
+ALLOWED_ORIGINS = "https://a1issa369.github.io,http://localhost:5173"
+
+# Fill in database_id after `npx wrangler d1 create colorcraft-analytics` (see README.md).
+[[d1_databases]]
+binding = "DB"
+database_name = "colorcraft-analytics"
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"

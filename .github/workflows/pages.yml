@@ -19,7 +19,9 @@ jobs:
       # A broken commit should not reach the live site: check types and run the tests before building.
       - run: npm run typecheck
       - run: npm test
+      # Optional: set a repository variable VITE_ANALYTICS_URL (Settings -> Secrets and variables -> Actions -> Variables) to collect usage counts.
       - run: npm run build
+        env: { VITE_ANALYTICS_URL: "${{ vars.VITE_ANALYTICS_URL }}" }
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: dist }

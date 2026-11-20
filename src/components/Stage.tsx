@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent, RefObject } from 'react';
+import { track } from '../analytics/track.ts';
 import { MAX_BRUSH_POINTS } from '../core/mask.ts';
 import type { Mask } from '../core/mask.ts';
 import { useEditor, useEditorState } from '../state/hooks.tsx';
@@ -214,6 +215,7 @@ export function StageActions() {
     await new Promise((r) => setTimeout(r, 30));     // let the button repaint before the heavy work starts
     try {
       const blob = await engine.exportJpeg();
+      track('export_jpeg');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'graded.jpg';
       document.body.appendChild(a); a.click(); a.remove();

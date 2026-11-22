@@ -123,35 +123,44 @@ There is no automatic sky or subject selection.
 - **Sample photos hid bugs.** My first "too orange" sample read as cool because the scene was blue dominant. I rebalanced the scene and tested that each broken sample is diagnosed the way it was broken. The synthetic scenes still back the tests, but the home page now uses real photos, which is where an automatic fix turned out to strip the gold from a sunset: it treats a strong cast as a mistake, so those cards use a look instead. The old "Fix everything for me" button ran a separate multi-round auto grade whose result could differ from the suggestions listed under it, which was confusing, so it was replaced by a button that applies exactly the listed suggestions.
 - **Float noise in the UI.** A fix showed as `0.7000000000000001`. Fix values are now rounded to slider steps, and a test pins that.
 
+## The photo assistant (chat)
+
+A chat bubble in the bottom right corner of every tab. Say what you want in your own words ("make the sky deeper", "moodier, like a film still", "what would improve this?") and it edits the photo with the same sliders, tints, looks and masks you can use yourself. Each reply is one undo step with an "Undo this" link, the bubble collapses with the minus button or Escape, and a photo button lets you add a reference photo so you can say "match it".
+
+How it works and what it is allowed to do:
+
+- **A real language model, behind your own Worker.** The page sends the last few messages plus a small summary of the photo and edit (brightness, clipping, colour cast, slider values, masks, findings, closeness to the reference) to `POST /chat` on the Cloudflare Worker, which calls Claude. The photo itself never leaves the device, and the Anthropic key is a Worker secret that never reaches the page.
+- **A short list of tools** (`src/chat/actions.ts`): edit the whole photo (sliders, split tints, a look), add a mask (sky, ground, bright areas, dark areas, centre, edges, left, right), clear masks, reset, run the reference match, undo. Every tool call is checked on the server and again in the page: unknown tools and looks are dropped, values are clamped to the slider ranges, at most six actions per reply, at most ten masks.
+- **Safety.** The system prompt limits it to editing this photo, explaining, and suggesting improvements, and tells it to decline anything unrelated or harmful. Message text is capped, history is limited to the last few turns, and nothing the model says can do more than move the controls (and everything is undoable). Spending is capped by `CHAT_PER_USER` (default 40 messages a day per visitor address, stored as a one-way hash) and `CHAT_PER_DAY` (default 1500 in total), checked before the model is called. Message text is never stored.
+- **Offline fallback.** If the Worker is not set up or cannot be reached, the chat falls back to a fixed list of phrases (`src/state/steer.ts`: "warmer", "moodier", "lift the shadows", ...) and says so.
+
 ## The match agent
 
-Pick a reference photo on the Match tab and press "Match my photo to this reference". An agent edits your photo toward the reference one step at a time and shows each step with a reason, the control changes it made and a "Go back to here" button. Every step is an undo step, and the agent only uses controls you can edit yourself: sliders, split tints and ordinary gradient masks.
-
-It is an on-device closed-loop optimiser, not a language model. Nothing is uploaded and no API key is involved. How it works:
+On the Match tab, choose a reference photo and press "Match my photo to this". An on-device optimiser (not a language model) edits your photo toward the reference one step at a time, and keeps only the steps that helped. The tab shows one result bar, a collapsed "What changed" list with "Go back here" links, and a collapsed "Fine tune" section with a slider for each thing it matched.
 
 - **Closeness.** Six dials (brightness, contrast, warmth, colour strength, shadow tint, highlight tint) are read from a profile of each photo. Each scores 0 to 100 by distance over a fixed scale, and the overall score is their mean (`src/core/matchscore.ts`).
-- **Steps** (`src/state/agent.ts`): read both photos, brightness, tone shape, warmth, colour strength, split toning, sky and ground masks (only if both photos have a clear horizon), up to two refine passes, then a check. Each control is solved by coordinate descent on a 160 px copy. A step is kept only if the overall score does not drop, and if nothing beat the starting point the photo goes back to it.
-- **Fine tuning.** Each dial has a meter and a slider bound to the real control. "Steer it in plain English" (`src/state/steer.ts`) understands a fixed list of phrases such as warmer, moodier or lift the shadows, with "much" and "slightly", and says what it understood and what it did not.
+- **Steps** (`src/state/agent.ts`): read both photos, brightness, tone shape, warmth, colour strength, split toning, sky and ground masks (only if both photos have a clear horizon), up to two refine passes, then a check. Each control is solved by coordinate descent on a 160 px copy. A step is kept only if the overall score does not drop, and if nothing beat the starting point the photo goes back to it. Every step is an undo step and only uses controls you can edit yourself.
 
 ## Usage counting
 
-`src/analytics/track.ts` records anonymous actions (tab opened, reference chosen, agent run with before and after scores, export). It never sees photos. Events go in a local ring buffer on the device, there is an opt-out in the footer that also clears them, and `#stats` shows the numbers.
+`src/analytics/track.ts` records anonymous actions (tab opened, reference chosen, agent run with before and after scores, chat messages and which tools they used, export). It never sees photos or message text. Events go in a local ring buffer on the device, there is an opt-out in the footer that also clears them, and `#stats` shows the numbers.
 
-To collect everyone's events, deploy `analytics-worker/` (a Cloudflare Worker with a D1 database, free tier) and build the site with `VITE_ANALYTICS_URL` set to its address:
+To turn on the chat for everyone and collect everyone's counts, deploy `analytics-worker/` (a Cloudflare Worker with a D1 database, free tier) and build the site with `VITE_ANALYTICS_URL` set to its address:
 
 ```
 cd analytics-worker
 npx wrangler login
 npx wrangler d1 create colorcraft-analytics     # paste the database_id into wrangler.toml
 npx wrangler d1 execute colorcraft-analytics --remote --file=schema.sql
+npx wrangler secret put ANTHROPIC_API_KEY       # paste your key when asked; it stays on Cloudflare
 npx wrangler deploy
 ```
 
-Then add the worker address as a repository variable named `VITE_ANALYTICS_URL` (or put it in `.env.production`) and redeploy the site. The worker validates and caps every event, only answers browsers from the origins in `ALLOWED_ORIGINS`, and `GET /summary` returns the aggregates used by `#stats`.
+Then add the worker address as a repository variable named `VITE_ANALYTICS_URL` (Settings, Secrets and variables, Actions, Variables) and rerun the Pages workflow. Without the key the Worker still counts usage and the chat uses the offline phrase list. Set a monthly spend limit in the Anthropic console as a second safety net. The Worker validates and caps every request, only answers browsers from the origins in `ALLOWED_ORIGINS`, and `GET /summary` returns the aggregates used by `#stats`.
 
 ## Testing
 
-About 250 tests cover the colour maths, the store's undo rules and the grading pipeline (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks about 70 lines of the maths and the store on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
+About 280 tests cover the colour maths, the store's undo rules and the grading pipeline (round trips, known values), each slider's direction and isolation, the diagnosis rules, the white balance solver and the transfer. `scripts/mutation_check.py` then breaks about 70 lines of the maths and the store on purpose (flip a sign, move a pivot, drop a clamp) and requires the suite to fail every time; it initially let 6 through, and 2 of the 11 mutations added with the curves work, which is how several of the tests above were found.
 
 The React components and the render engine are checked by hand with Playwright at phone and desktop widths, not by automated tests.
 

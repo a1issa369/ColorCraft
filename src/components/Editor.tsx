@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useEditor } from '../state/hooks.tsx';
+import { ChatWidget } from './ChatWidget.tsx';
 import { Panel } from './Panel.tsx';
 import { Stage, StageActions } from './Stage.tsx';
 
@@ -25,6 +26,7 @@ export function Editor() {
         <StageActions />
       </div>
       <Panel />
+      <ChatWidget />
     </section>
   );
 }

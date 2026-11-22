@@ -7,3 +7,11 @@ CREATE TABLE IF NOT EXISTS events (
   props TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
+
+-- Chat message counts per day, used only to enforce spending limits. Message text is never stored.
+CREATE TABLE IF NOT EXISTS chat_usage (
+  key TEXT NOT NULL,            -- 'all', or 'u:' plus a short one-way hash of the visitor address
+  day TEXT NOT NULL,
+  n INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (key, day)
+);

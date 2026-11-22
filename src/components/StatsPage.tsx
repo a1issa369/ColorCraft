@@ -80,6 +80,7 @@ function Body({ load }: { load: Extract<Load, { state: 'ok' }> }) {
         <Card label="Sessions" value={String(s.sessions)} />
         <Card label="Match agent runs" value={String(s.agent.runs)} note={s.agent.runs ? `${pct(s.agent.improvedPct)} ended closer to the reference` : undefined} />
         <Card label="Average closeness" value={s.agent.runs ? `${one(s.agent.avgBefore)} to ${one(s.agent.avgAfter)}` : 'none yet'} note={s.agent.runs ? `+${one(s.agent.avgGain)} points, ${one(s.agent.avgSeconds)} s per run` : undefined} />
+        <Card label="Chat messages" value={String(s.chat.messages)} note={s.chat.messages ? `${pct(s.chat.editedPct)} changed the photo, ${s.chat.opened} opens` : undefined} />
         <Card label="Photos saved" value={String(s.exports)} />
       </div>
       <h3 className="mb-2 mt-5 text-[1rem] font-semibold">Where people get to</h3>
@@ -93,6 +94,7 @@ function Body({ load }: { load: Extract<Load, { state: 'ok' }> }) {
         ))}
       </ul>
       <div className="mt-5 grid gap-6 sm:grid-cols-2">
+        <section><h3 className="mb-2 text-[1rem] font-semibold">What the assistant did</h3><Bars rows={s.chat.tools} empty="No chat edits yet." /></section>
         <section><h3 className="mb-2 text-[1rem] font-semibold">Steering phrases</h3><Bars rows={s.steer.top} empty="No steering yet." /></section>
         <section><h3 className="mb-2 text-[1rem] font-semibold">Breakdown dials touched</h3><Bars rows={s.dials} empty="No dial changes yet." /></section>
         <section><h3 className="mb-2 text-[1rem] font-semibold">Tabs viewed</h3><Bars rows={s.tabs} empty="No tab views yet." /></section>

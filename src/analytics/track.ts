@@ -5,7 +5,8 @@
 
 export type EventName =
   | 'session_start' | 'photo_opened' | 'tab_viewed' | 'reference_chosen' | 'agent_run' | 'agent_step_jump'
-  | 'steer_used' | 'dial_changed' | 'mask_added' | 'export_jpeg' | 'copy_settings' | 'live_match_used';
+  | 'steer_used' | 'dial_changed' | 'mask_added' | 'export_jpeg' | 'copy_settings' | 'live_match_used'
+  | 'chat_opened' | 'chat_message';
 
 export type Props = Record<string, string | number | boolean>;
 export interface AnalyticsEvent { n: EventName; t: number; v: string; s: string; p?: Props }
@@ -13,6 +14,7 @@ export interface AnalyticsEvent { n: EventName; t: number; v: string; s: string;
 export const EVENT_NAMES: readonly EventName[] = [
   'session_start', 'photo_opened', 'tab_viewed', 'reference_chosen', 'agent_run', 'agent_step_jump',
   'steer_used', 'dial_changed', 'mask_added', 'export_jpeg', 'copy_settings', 'live_match_used',
+  'chat_opened', 'chat_message',
 ];
 
 const KEY_OFF = 'cc-analytics-off';

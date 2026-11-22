@@ -34,11 +34,12 @@ function Footer() {
   const [on, setOn] = useState(analytics.enabled);
   return (
     <footer className="px-4 pt-[22px] pb-7 text-center text-[0.8rem] text-muted">
-      <p className="m-0">Your photos stay on your device. No uploads, no accounts.</p>
-      <p className="mx-auto mt-1.5 max-w-[46ch]">
-        {on ? 'We count anonymous actions, like which tab opened, never your photos. ' : 'Usage counting is off. '}
+      <p className="m-0">Your photos stay on your device. No accounts.</p>
+      <p className="mx-auto mt-1.5 max-w-[52ch]">
+        The chat assistant sends your message and numbers about the photo, never the photo itself, to Claude.
+        {' '}{on ? 'We also count anonymous actions, like which tab opened. ' : 'Usage counting is off. '}
         <button type="button" id="analytics-toggle" className="cursor-pointer border-0 bg-transparent p-0 text-muted underline"
-          onClick={() => { analytics.setEnabled(!on); setOn(!on); }}>{on ? 'Turn off' : 'Turn on'}</button>
+          onClick={() => { analytics.setEnabled(!on); setOn(!on); }}>{on ? 'Turn counting off' : 'Turn counting on'}</button>
         {' · '}<a href="#stats" className="text-muted underline">See the numbers</a>
       </p>
     </footer>

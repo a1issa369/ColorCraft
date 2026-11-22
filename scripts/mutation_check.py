@@ -70,6 +70,17 @@ MUTATIONS = [
     ("state/store.ts", "split: tab === 'masks' && this.state.split > 0 ? 0 : this.state.split", "split: this.state.split", "masks tab keeps the original on screen"),
     ("state/grade.ts", "if (!masksAreNeutral(s.masks)) out = applyMasks(out, s.masks, cache, bufs?.c);", "", "masks not applied"),
     ("state/grade.ts", "return look ? combine(s.adj, look.adj, s.lookStrength) : s.adj;", "return s.adj;", "look ignored"),
+    ("chat/actions.ts", "adj[k] = roundTo(clamp(v, lo, hi), k === 'exposure' ? 0.05 : k === 'fade' ? 0.01 : 1);", "adj[k] = roundTo(v, k === 'exposure' ? 0.05 : k === 'fade' ? 0.01 : 1);", "assistant slider values not clamped to their ranges"),
+    ("chat/actions.ts", "else if (typeof i.look === 'string' && LOOK_IDS.includes(i.look)) {", "else if (typeof i.look === 'string') {", "assistant can name a look that does not exist"),
+    ("chat/actions.ts", "if (out.length >= MAX_ACTIONS) break;", "", "no limit on actions per reply"),
+    ("chat/apply.ts", "if (next.masks.length >= MAX_MASKS) {", "if (false) {", "assistant can exceed the mask limit"),
+    ("chat/apply.ts", "if (actions.some((a) => a.tool === 'undo')) return", "if (false) return", "undo from chat ignored"),
+    ("chat/perform.ts", "if (changed) commitSettings(store, r.settings);", "", "chat edits never reach the editor"),
+    ("chat/perform.ts", "if (store.getState().agent.ref) void engine.runAgent();", "void engine.runAgent();", "match runs without a reference"),
+    ("chat/session.ts", "if (res.status === 429) {", "if (false) {", "daily limit falls back as if the server were down"),
+    ("chat/session.ts", "const text = o.text.trim().slice(0, MAX_INPUT);", "const text = o.text.trim();", "chat input not cut to the limit"),
+    ("../analytics-worker/src/handler.ts", "> (env.CHAT_PER_USER ?? 40)) return", "> 100000) return", "no per visitor daily chat limit"),
+    ("../analytics-worker/src/handler.ts", "if (!env.model) return json({ error: 'chat is not set up' }, 503);", "", "chat answers even when no model is configured"),
     ("core/matchscore.ts", "100 * Math.max(0, 1 - distance / SCALE[id])", "100 * Math.max(0, 1 - distance * SCALE[id])", "dial score scale applied backwards"),
     ("core/matchscore.ts", "const SCALE: Record<DialId, number> = { brightness: 20,", "const SCALE: Record<DialId, number> = { brightness: 2000,", "brightness gap no longer lowers the score"),
     ("state/agent.ts", "const kept = changes.length > 0 && after >= before - tolerance;", "const kept = changes.length > 0;", "agent keeps steps that make the match worse"),
@@ -87,7 +98,7 @@ def main():
         print("The suite must pass before mutating."); return 2
     survived = []
     for fname, old, new, why in MUTATIONS:
-        path = ROOT / "src" / (fname if "/" in fname else "core/" + fname)
+        path = ROOT / fname[3:] if fname.startswith("../") else ROOT / "src" / (fname if "/" in fname else "core/" + fname)
         src = path.read_text()
         if src.count(old) != 1:
             print(f"SKIP   {fname}: pattern for '{why}' found {src.count(old)} times"); survived.append(why); continue

@@ -17,6 +17,7 @@ export interface Summary {
   masks: { name: string; n: number }[];
   photos: { sample: number; upload: number };
   exports: number;
+  chat: { opened: number; messages: number; offlinePct: number; editedPct: number; tools: { name: string; n: number }[] };
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -58,7 +59,7 @@ export function summarize(events: AnalyticsEvent[]): Summary {
       { step: 'Looked at the Match tab', sessions: sessionsWith((e) => e.n === 'tab_viewed' && str(e.p, 'tab') === 'match') },
       { step: 'Chose a reference photo', sessions: sessionsWith((e) => e.n === 'reference_chosen') },
       { step: 'Ran the match agent', sessions: sessionsWith((e) => e.n === 'agent_run') },
-      { step: 'Fine tuned the result', sessions: sessionsWith((e) => e.n === 'dial_changed' || e.n === 'steer_used' || e.n === 'agent_step_jump') },
+      { step: 'Fine tuned the result', sessions: sessionsWith((e) => e.n === 'dial_changed' || e.n === 'steer_used' || e.n === 'agent_step_jump' || e.n === 'chat_message') },
       { step: 'Saved the photo', sessions: sessionsWith((e) => e.n === 'export_jpeg') },
     ],
     agent: {
@@ -78,5 +79,15 @@ export function summarize(events: AnalyticsEvent[]): Summary {
       upload: by('photo_opened').filter((e) => str(e.p, 'source') === 'upload').length,
     },
     exports: by('export_jpeg').length,
+    chat: (() => {
+      const m = by('chat_message').map((e) => e.p ?? {});
+      return {
+        opened: by('chat_opened').length,
+        messages: m.length,
+        offlinePct: m.length ? (100 * m.filter((p) => p.source === 'offline' || p.source === 'error').length) / m.length : 0,
+        editedPct: m.length ? (100 * m.filter((p) => p.edited === true).length) / m.length : 0,
+        tools: tally(m.flatMap((p) => (typeof p.tools === 'string' ? p.tools.split(',').map((x) => x.trim()) : []))),
+      };
+    })(),
   };
 }

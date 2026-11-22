@@ -5,6 +5,11 @@ compatibility_date = "2025-01-01"
 # Pages that may read /summary and send events from a browser.
 [vars]
 ALLOWED_ORIGINS = "https://a1issa369.github.io,http://localhost:5173"
+# The model used for chat, and the daily message limits (per visitor address, and in total).
+CHAT_MODEL = "claude-haiku-4-5-20251001"
+CHAT_PER_USER = "40"
+CHAT_PER_DAY = "1500"
+# The Anthropic key is a secret, not set here: run `npx wrangler secret put ANTHROPIC_API_KEY`.
 
 # Fill in database_id after `npx wrangler d1 create colorcraft-analytics` (see README.md).
 [[d1_databases]]
